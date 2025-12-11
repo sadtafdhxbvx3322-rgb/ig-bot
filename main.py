@@ -11,7 +11,7 @@ from config import Config
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Ping Pong! Bot is Working via Session. 🏓"
+def home(): return "Ping Pong! Bot is Working via Smart Session. 🏓"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
@@ -22,25 +22,29 @@ def run_bot():
     model = genai.GenerativeModel('gemini-pro')
     cl = Client()
 
-    # --- 🔐 NEW LOGIN LOGIC (SESSION JSON) ---
+    # --- 🧠 SMART LOGIN LOGIC ---
     try:
         print("🔄 Loading Session...")
-        
-        # String ko wapas JSON (Object) mein convert kar rahe hain
         session_data = json.loads(Config.INSTA_SESSION)
-        
-        # Instagrapi ko settings de rahe hain
         cl.set_settings(session_data)
         
-        # Login verify (Password use karega but Session hone ki wajah se block nahi hoga)
-        cl.login(Config.INSTA_USER, Config.INSTA_PASS)
-        print("✅ Login Success via Saved Session!")
+        # TEST: Bina password daale check karte hain ki session zinda hai ya nahi
+        try:
+            cl.get_timeline_feed() # Ye request fail hogi agar session expired hai
+            print("✅ Session Valid! (Login & Password Skipped)")
+            # Agar session sahi hai, toh hume cl.login() karne ki zarurat hi nahi hai
+            # Isse 'User Not Found' wala error kabhi nahi aayega
+            
+        except Exception:
+            print("⚠️ Session Weak/Expired. Trying Password Login...")
+            cl.login(Config.INSTA_USER, Config.INSTA_PASS)
+            print("✅ Login Success via Password!")
 
     except Exception as e:
-        print(f"❌ Login Failed: {e}")
-        print("⚠️ Check if Session JSON is pasted correctly in config.py")
+        print(f"❌ Critical Login Fail: {e}")
+        print("💡 Tip: Check INSTA_USER spelling in config.py")
         return
-    # ----------------------------------------
+    # ----------------------------
 
     def process():
         try:
