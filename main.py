@@ -8,7 +8,8 @@ from config import Config
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Tau Bot Live! 🚀"
+def home():
+    return "Ping Pong! Bot is Working. 🏓"
 def run_web(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
 
 def run_bot():
