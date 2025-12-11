@@ -12,18 +12,19 @@ from config import Config
 
 app = Flask(__name__)
 @app.route('/')
-def home(): return "Ping Pong! Bot is Running Fast (2s). 🏓"
+def home(): return "Ping Pong! Bot is Live (Gemini Pro). 🏓"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
 
 def run_bot():
-    print("🤖 Bot Starting in FAST MODE...")
+    print("🤖 Bot Starting with GEMINI PRO...")
     
-    # --- AI SETUP ---
+    # --- AI SETUP (Back to Stable Model) ---
     try:
         genai.configure(api_key=Config.GEMINI_KEY)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # 👇 Yahan wapas 'gemini-pro' kar diya hai taaki 404 Error na aaye
+        model = genai.GenerativeModel('gemini-pro')
     except Exception as e:
         print(f"❌ AI Setup Error: {e}")
 
@@ -37,7 +38,7 @@ def run_bot():
         
         try:
             cl.get_timeline_feed()
-            print("✅ Session Valid! Bot Online & Fast.")
+            print("✅ Session Valid! Bot Online.")
         except:
             print("⚠️ Session Expired? Password Login Trying...")
             cl.login(Config.INSTA_USER, Config.INSTA_PASS)
@@ -78,9 +79,9 @@ def run_bot():
                             if link:
                                 cl.direct_send(f"🎶 Ye lo Audio:\n{link}", [uid])
                             else:
-                                cl.direct_send("❌ Audio error.", [uid])
+                                cl.direct_send("❌ Audio convert nahi hua.", [uid])
                         else:
-                            cl.direct_send("❌ Gaana nahi mila.", [uid])
+                            cl.direct_send("❌ Link nahi mila.", [uid])
                     except Exception as e:
                         cl.direct_send(f"⚠️ AI Error: {str(e)}", [uid])
 
@@ -99,13 +100,15 @@ def run_bot():
                         save_interaction(uid, text, reply)
                     except Exception as e:
                         print(f"AI Chat Error: {e}")
+                        # Error user ko bhi batao taaki pata chale
+                        cl.direct_send("⚠️ Brain Freeze! (AI Error)", [uid])
                 
                 cl.direct_thread_mark_seen(t.id)
                 
         except Exception as e:
             print(f"Loop Error: {e}")
 
-    # 👇 YAHAN CHANGE KIYA HAI (10s se 2s kar diya)
+    # Fast Speed (2 Seconds)
     while True: process(); time.sleep(2)
 
 if __name__ == "__main__":
