@@ -1,0 +1,8 @@
+instagrapi
+google-generativeai
+requests
+python-dotenv
+flask
+pyrogram
+tgcrypto
+pymongo
