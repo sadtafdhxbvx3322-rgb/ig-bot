@@ -2,15 +2,15 @@ import os
 
 class Config:
     # =====================================================
-    # 🔐 TAU KA FINAL CONFIGURATION (Session Added ✅)
+    # 🔐 GLITCH TOOLS CONFIGURATION (Ready to Launch 🚀)
     # =====================================================
 
-    # 1. INSTAGRAM (Login Bypass Mode)
+    # 1. INSTAGRAM (New ID)
     INSTA_USER = "glitch.tools"
     INSTA_PASS = "Cyber#Gh0st!7X"
     
-    # 👇 TERA ASLI BRAHMASTRA (Maine JSON fit kar diya hai)
-    INSTA_SESSION = """{"uuids": {"phone_id": "696e1145-6bb1-4cc7-924d-1de59748161e", "uuid": "5262bd56-cef6-41b1-abfa-3b86c3936282", "client_session_id": "e842ffb3-153a-4779-8d29-dd9cd9d03744", "advertising_id": "a9ae3e13-2bcd-410f-8468-e8b198a0020f", "android_device_id": "android-22655f8427eadc9e", "request_id": "d0d61cb6-fd83-449d-9f86-50d40ad7b11c", "tray_session_id": "c95f775f-e8cb-46c1-8d56-f009dc7529f8"}, "mid": "aTse8QABAAFwBm3sx5EPl6kbERWU", "ig_u_rur": null, "ig_www_claim": null, "authorization_data": {"ds_user_id": "75136570684", "sessionid": "75136570684%3AaSjWEEQeYHMqtn%3A2%3AAYisVwyK5pUum1qI8hLmKAUsvy00ysQqbwl4g6-lVQ"}, "cookies": {}, "last_login": 1765482233.951577, "device_settings": {"app_version": "269.0.0.18.75", "android_version": 26, "android_release": "8.0.0", "dpi": "480dpi", "resolution": "1080x1920", "manufacturer": "OnePlus", "device": "devitron", "model": "6T Dev", "cpu": "qcom", "version_code": "314665256"}, "user_agent": "Instagram 269.0.0.18.75 Android (26/8.0.0; 480dpi; 1080x1920; OnePlus; 6T Dev; devitron; qcom; en_US; 314665256)", "country": "US", "country_code": 1, "locale": "en_US", "timezone_offset": -14400}"""
+    # 👇 TERA NAYA SESSION (Ye maine fit kar diya hai ✅)
+    INSTA_SESSION = """{"uuids": {"phone_id": "71050313-8094-4f82-8248-c079b1b55cf0", "uuid": "4fb10fbb-6952-4f4d-b14e-5247e7d05c43", "client_session_id": "116f3d8b-a196-43d8-833c-429d8e031123", "advertising_id": "20fe3b32-9ca9-4b45-a17a-df9509bddfbf", "android_device_id": "android-be9056215b9c93e1", "request_id": "d29d7228-e863-4700-b9f6-46dec26d6937", "tray_session_id": "d32acec0-3e25-4758-bab2-cd1106bd69b5"}, "mid": "aTsxUAABAAFLBO-8XM6j8HJRvgZW", "ig_u_rur": null, "ig_www_claim": null, "authorization_data": {"ds_user_id": "75136570684", "sessionid": "75136570684%3Al6Od31Xg3jkqtg%3A7%3AAYisVi8fjBb97xG-iQCfwmioVUjouOSPIikVmiQfkg"}, "cookies": {}, "last_login": 1765486938.839399, "device_settings": {"app_version": "269.0.0.18.75", "android_version": 26, "android_release": "8.0.0", "dpi": "480dpi", "resolution": "1080x1920", "manufacturer": "OnePlus", "device": "devitron", "model": "6T Dev", "cpu": "qcom", "version_code": "314665256"}, "user_agent": "Instagram 269.0.0.18.75 Android (26/8.0.0; 480dpi; 1080x1920; OnePlus; 6T Dev; devitron; qcom; en_US; 314665256)", "country": "US", "country_code": 1, "locale": "en_US", "timezone_offset": -14400}"""
 
     # 2. AI BRAIN
     GEMINI_KEY = "AIzaSyD22dR3viKxaLyIWeOGJxKmrLckV4Q-NOU"
