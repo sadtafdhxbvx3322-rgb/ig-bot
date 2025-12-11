@@ -18,33 +18,31 @@ def run_web():
 def run_bot():
     print("🤖 Starting Fast Bot...")
     
-    # 1. AI Setup (DEBUGGING)
+    # 1. AI Setup (FIXED MODEL NAME)
     genai.configure(api_key=Config.GEMINI_KEY)
     model = None
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        print("✅ AI Active: gemini-1.5-flash")
+        # Changed to stable and available model
+        model = genai.GenerativeModel("gemini-2.5-flash") 
+        print("✅ AI Active: gemini-2.5-flash")
     except Exception as e:
-        # Pata chale ki AI key hi galat hai
-        print(f"❌ ERROR: GEMINI KEY FAILURE: {e}") 
+        print(f"❌ ERROR: GEMINI KEY/MODEL FAILURE: {e}") 
 
-    # 2. Instagram Login (DEBUGGING)
+    # 2. Instagram Login
     cl = Client()
     try:
-        # Session se login (Fast & Safe)
         cl.set_settings(json.loads(Config.INSTA_SESSION))
         cl.get_timeline_feed()
         print("✅ Session Login Success")
     except Exception as e:
         print(f"⚠️ INSTA SESSION FAIL: {e}")
         try:
-            # Backup Password Login
             cl.login(Config.INSTA_USER, Config.INSTA_PASS)
             print("✅ Password Login Success")
         except Exception as e2:
             print(f"❌ INSTA LOGIN FINAL FAIL: {e2}")
 
-    # 3. Main Loop (Fast Speed)
+    # 3. Main Loop
     while True:
         try:
             threads = cl.direct_threads(selected_filter="unread", amount=5)
@@ -66,20 +64,17 @@ def run_bot():
                     if model:
                         cl.direct_send("🎧 Searching...", [uid])
                         try:
-                            # AI Search
                             url = model.generate_content(f"YouTube Music URL for '{text[5:]}'. ONLY URL.").text.strip()
-                            # Download
                             if "http" in url:
                                 link = download_media(url, True)
                                 cl.direct_send(f"🎶 Audio:\n{link}" if link else "❌ Download Error", [uid])
                             else:
-                                cl.direct_send(f"❌ AI Search Fail: {url}", [uid]) # Print AI search failure
+                                cl.direct_send(f"❌ AI Search Fail: {url}", [uid])
                         except Exception as e:
                             cl.direct_send(f"❌ AI Music Error: {e}", [uid])
 
                 elif text.startswith("+91") or (text.isdigit() and len(text)>9):
                     cl.direct_send("🕵️ Looking up...", [uid])
-                    # Truecaller lookup will print errors inside tools.py
                     cl.direct_send(truecaller_lookup(text), [uid])
 
                 else:
@@ -96,10 +91,10 @@ def run_bot():
                         cl.direct_send("⚠️ AI Brain Offline (Check Render Logs)", [uid])
 
         except Exception as e:
-            # Main loop crash ho toh pata chale
             print(f"🚨 MAJOR LOOP CRASH: {e}")
             time.sleep(5)
 
+        # FAST SPEED (2 seconds)
         time.sleep(2)
 
 if __name__ == "__main__":
