@@ -1,29 +1,107 @@
-# tools.py ke andar run_lookup function ko isse replace kar do:
+import os, time, threading, json
+from flask import Flask
+from instagrapi import Client
+import google.generativeai as genai
+from tools import download_media, truecaller_lookup
+from database import get_user_memory, save_interaction
+from config import Config
 
-async def run_lookup(number):
-    if not Config.SESSION_STRING: return "⚠️ Session Missing"
-    bots = [Config.PRIMARY_BOT, Config.BACKUP_BOT]
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Ping Pong! Bot Live. 🏓"
+
+def run_web():
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+
+def run_bot():
+    print("🤖 Starting Fast Bot...")
     
-    # Client ko loop se pehle shuru karo
-    async with Client("worker", api_id=Config.TG_API_ID, api_hash=Config.TG_API_HASH, session_string=Config.SESSION_STRING, in_memory=True) as app:
-        for bot in bots:
-            try:
-                # 1. Message bhejenge aur uska ID store karenge
-                sent = await app.send_message(bot, number)
+    # 1. AI Setup (DEBUGGING)
+    genai.configure(api_key=Config.GEMINI_KEY)
+    model = None
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        print("✅ AI Active: gemini-1.5-flash")
+    except Exception as e:
+        # Pata chale ki AI key hi galat hai
+        print(f"❌ ERROR: GEMINI KEY FAILURE: {e}") 
+
+    # 2. Instagram Login (DEBUGGING)
+    cl = Client()
+    try:
+        # Session se login (Fast & Safe)
+        cl.set_settings(json.loads(Config.INSTA_SESSION))
+        cl.get_timeline_feed()
+        print("✅ Session Login Success")
+    except Exception as e:
+        print(f"⚠️ INSTA SESSION FAIL: {e}")
+        try:
+            # Backup Password Login
+            cl.login(Config.INSTA_USER, Config.INSTA_PASS)
+            print("✅ Password Login Success")
+        except Exception as e2:
+            print(f"❌ INSTA LOGIN FINAL FAIL: {e2}")
+
+    # 3. Main Loop (Fast Speed)
+    while True:
+        try:
+            threads = cl.direct_threads(selected_filter="unread", amount=5)
+            
+            for t in threads:
+                msg = t.messages[0]
+                text = msg.text
+                uid = t.users[0].pk
                 
-                # Bot ko reply karne ka time denge
-                await asyncio.sleep(8)
+                print(f"⚡ Replying to {uid}: {text}")
                 
-                # 2. History check karenge, limit 5 tak badha denge
-                async for msg in app.get_chat_history(bot, limit=5):
-                    
-                    # 3. Yahan check ho raha hai: Kya yeh reply mere bheje hue message (sent.id) se NAYA hai?
-                    # Aur kya yeh bot ka reply kisi command ya empty text se bada hai?
-                    if msg.id > sent.id and len(msg.text) > 20 and "start" not in msg.text.lower():
-                        return f"🕵️ **Info ({bot}):**\n{msg.text}"
-                        
-            except Exception as e:
-                # Agar koi bot down ho, toh agle bot pe chala jayega
-                print(f"Telegram Bot Error on {bot}: {e}")
-                continue
-    return "❌ No Data Found"
+                # Logic Start
+                if "instagram.com" in text or "youtu" in text:
+                    cl.direct_send("🚀 Downloading...", [uid])
+                    link = download_media(text, "spotify" in text)
+                    cl.direct_send(f"✅ Link:\n{link}" if link else "❌ Failed", [uid])
+
+                elif text.lower().startswith(("play ", "bajao ")):
+                    if model:
+                        cl.direct_send("🎧 Searching...", [uid])
+                        try:
+                            # AI Search
+                            url = model.generate_content(f"YouTube Music URL for '{text[5:]}'. ONLY URL.").text.strip()
+                            # Download
+                            if "http" in url:
+                                link = download_media(url, True)
+                                cl.direct_send(f"🎶 Audio:\n{link}" if link else "❌ Download Error", [uid])
+                            else:
+                                cl.direct_send(f"❌ AI Search Fail: {url}", [uid]) # Print AI search failure
+                        except Exception as e:
+                            cl.direct_send(f"❌ AI Music Error: {e}", [uid])
+
+                elif text.startswith("+91") or (text.isdigit() and len(text)>9):
+                    cl.direct_send("🕵️ Looking up...", [uid])
+                    # Truecaller lookup will print errors inside tools.py
+                    cl.direct_send(truecaller_lookup(text), [uid])
+
+                else:
+                    # AI Chat
+                    if model:
+                        try:
+                            prompt = f"Act as a close Indian friend. Reply in Hinglish (Roman Hindi). Max 15 words. No formal drama. Context:\n{get_user_memory(uid)}\nUser: {text}"
+                            reply = model.generate_content(prompt).text
+                            cl.direct_send(reply, [uid])
+                            save_interaction(uid, text, reply)
+                        except Exception as e:
+                            cl.direct_send(f"❌ AI Chat Error: {e}", [uid])
+                    else:
+                        cl.direct_send("⚠️ AI Brain Offline (Check Render Logs)", [uid])
+
+        except Exception as e:
+            # Main loop crash ho toh pata chale
+            print(f"🚨 MAJOR LOOP CRASH: {e}")
+            time.sleep(5)
+
+        time.sleep(2)
+
+if __name__ == "__main__":
+    threading.Thread(target=run_web).start()
+    run_bot()
