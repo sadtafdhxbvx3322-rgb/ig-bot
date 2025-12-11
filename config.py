@@ -6,8 +6,8 @@ class Config:
     # =====================================================
 
     # 1. INSTAGRAM (Login Bypass Mode)
-    INSTA_USER = "khooshzzzz"
-    INSTA_PASS = "Khush@123262669"
+    INSTA_USER = "glitch.tools"
+    INSTA_PASS = "Cyber#Gh0st!7X"
     
     # 👇 TERA ASLI BRAHMASTRA (Maine JSON fit kar diya hai)
     INSTA_SESSION = """{"uuids": {"phone_id": "696e1145-6bb1-4cc7-924d-1de59748161e", "uuid": "5262bd56-cef6-41b1-abfa-3b86c3936282", "client_session_id": "e842ffb3-153a-4779-8d29-dd9cd9d03744", "advertising_id": "a9ae3e13-2bcd-410f-8468-e8b198a0020f", "android_device_id": "android-22655f8427eadc9e", "request_id": "d0d61cb6-fd83-449d-9f86-50d40ad7b11c", "tray_session_id": "c95f775f-e8cb-46c1-8d56-f009dc7529f8"}, "mid": "aTse8QABAAFwBm3sx5EPl6kbERWU", "ig_u_rur": null, "ig_www_claim": null, "authorization_data": {"ds_user_id": "75136570684", "sessionid": "75136570684%3AaSjWEEQeYHMqtn%3A2%3AAYisVwyK5pUum1qI8hLmKAUsvy00ysQqbwl4g6-lVQ"}, "cookies": {}, "last_login": 1765482233.951577, "device_settings": {"app_version": "269.0.0.18.75", "android_version": 26, "android_release": "8.0.0", "dpi": "480dpi", "resolution": "1080x1920", "manufacturer": "OnePlus", "device": "devitron", "model": "6T Dev", "cpu": "qcom", "version_code": "314665256"}, "user_agent": "Instagram 269.0.0.18.75 Android (26/8.0.0; 480dpi; 1080x1920; OnePlus; 6T Dev; devitron; qcom; en_US; 314665256)", "country": "US", "country_code": 1, "locale": "en_US", "timezone_offset": -14400}"""
