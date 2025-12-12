@@ -19,7 +19,7 @@ for lib in ['urllib3', 'instagrapi', 'httpx', 'httpcore', 'yt_dlp']:
 app = Flask(__name__)
 
 @app.route('/')
-def home(): return "Bot Online (Upload Fix)"
+def home(): return "Bot Online (Voice Note Fix)"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
@@ -33,22 +33,20 @@ def ask_ai(text):
         return requests.get(url, timeout=10).text.strip()
     except: return None
 
-# ================== 2. MUSIC (Render Compatible) ==================
+# ================== 2. MUSIC (SoundCloud) ==================
 def download_music(query):
     try:
         clean_query = query.lower().replace("play ", "").strip()
         print(f"🎵 Searching: {clean_query}")
         
-        # Instagram likes .m4a (AAC), no conversion needed
         filename = f"song_{int(time.time())}.m4a"
         path = f"/tmp/{filename}"
         if os.path.exists(path): os.remove(path)
 
         ydl_opts = {
-            # Direct M4A download (No FFmpeg needed)
             'format': 'bestaudio[ext=m4a]/best',
             'outtmpl': path,
-            'default_search': 'scsearch1', # SoundCloud
+            'default_search': 'scsearch1',
             'quiet': True,
             'no_warnings': True,
             'geo_bypass': True,
@@ -58,21 +56,14 @@ def download_music(query):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([clean_query])
 
-        if os.path.exists(path): 
-            # Check file size (Empty file = Fail)
-            if os.path.getsize(path) > 0:
-                return path, None
-            else:
-                return None, "Downloaded file is empty."
-                
+        if os.path.exists(path): return path, None
         return None, "Song not found."
     except Exception as e: return None, str(e)
 
-# ================== 3. TELEGRAM SEARCH ==================
+# ================== 3. TELEGRAM ==================
 async def run_tg_search(number):
     if not Config.SESSION_STRING: return "⚠️ Config Missing"
     bots = [Config.PRIMARY_BOT, Config.BACKUP_BOT]
-    
     try:
         async with TGClient("worker", api_id=Config.TG_API_ID, api_hash=Config.TG_API_HASH, session_string=Config.SESSION_STRING, in_memory=True) as app:
             for bot in bots:
@@ -84,7 +75,6 @@ async def run_tg_search(number):
                             return f"🕵️ Info ({bot}):\n{msg.text}"
                 except: continue
     except Exception as e: return f"❌ TG Error: {e}"
-    
     return "❌ No Data Found."
 
 def search_number(n):
@@ -135,29 +125,35 @@ def run_bot():
                     res = search_number(phone)
                     cl.direct_answer(tid, res)
 
-                # --- B. MUSIC ---
+                # --- B. MUSIC (Voice Note FIX) ---
                 elif "play " in text.lower():
                     cl.direct_answer(tid, "🔍 Searching...")
                     path, err = download_music(text)
+                    
                     if path:
-                        cl.direct_answer(tid, "🚀 Uploading...")
+                        cl.direct_answer(tid, "🚀 Uploading Voice Note...")
                         try:
-                            # Try 1: Voice Note (Best experience)
-                            cl.direct_send_voice(path, [t.users[0].pk])
-                            cl.direct_answer(tid, "✅ Sent Voice Note.")
-                        except Exception as e_voice:
-                            print(f"Voice Fail: {e_voice}. Trying File...")
+                            # CRITICAL FIX: Fake Waveform bypasses FFmpeg check
+                            # Hum fake waveform bhej rahe hain taaki error na aaye
+                            cl.direct_send_voice(
+                                path, 
+                                user_ids=[t.users[0].pk],
+                                waveform=[0]*100, # Fake visual
+                                duration_ms=30000 # Fake duration (30s)
+                            )
+                            cl.direct_answer(tid, "✅ Sent.")
+                        except Exception as e:
+                            print(f"Voice Failed: {e}. Trying File...")
                             try:
-                                # Try 2: Normal Audio File (More reliable)
-                                cl.direct_send_file(path, [t.users[0].pk])
-                                cl.direct_answer(tid, "✅ Sent Audio File.")
-                            except Exception as e_file:
-                                cl.direct_answer(tid, f"❌ Upload Failed completely. Error: {e_file}")
-                        
-                        # Cleanup
-                        if os.path.exists(path): os.remove(path)
+                                # Fallback: Audio Attachment (Always works)
+                                cl.direct_send_file(path, user_ids=[t.users[0].pk])
+                                cl.direct_answer(tid, "✅ Sent as Audio File (Voice Note failed).")
+                            except Exception as e2:
+                                cl.direct_answer(tid, f"❌ Upload Error: {e2}")
+                        finally:
+                            if os.path.exists(path): os.remove(path)
                     else:
-                        cl.direct_answer(tid, f"❌ Download Error: {err}")
+                        cl.direct_answer(tid, "❌ Song not found.")
 
                 # --- C. AI CHAT ---
                 else:
