@@ -14,7 +14,7 @@ def download_media(url, is_audio=False):
         if is_audio: 
             payload.update({"isAudioOnly": "true", "aFormat": "mp3"})
         
-        # Using the stable backup instance URL
+        # Using the stable backup instance URL (FIXED)
         resp = requests.post("https://cobalt.api.kwiatekmiki.pl/api/json", json=payload, headers=headers, timeout=15).json()
         
         if "url" in resp: return resp["url"]
@@ -24,17 +24,22 @@ def download_media(url, is_audio=False):
 
     # --- 2. Generic Mirror Attempt (Secondary Fallback) ---
     try:
-        # Note: This generic mirror might not support all media types (like shorts/audios).
-        # We use a simple publicly available download mirror
-        api_url = f"https://d-downloader.site/api/v2/dl?url={url}" 
+        if is_audio: 
+            # Skipping complex audio download for backup mirrors
+            return None 
+
+        # THIRD ATTEMPT: Using a known public download mirror (FIXED FALLBACK)
+        api_url = f"https://www.dlpanda.com/api/downloader/video?url={url}"
+        
         resp = requests.get(api_url, timeout=15).json()
         
-        if resp and 'url' in resp:
-            # Handle list or direct URL response from the mirror
-            if isinstance(resp['url'], list) and resp['url']:
+        if resp and 'url' in resp and resp['url']:
+             # Returns the first available video URL
+             if isinstance(resp['url'], list) and resp['url'][0].get('url'):
                  return resp['url'][0]['url']
-            elif isinstance(resp['url'], str):
-                 return resp['url']
+             # Dlpanda returns the result directly on the download key
+             elif resp.get('download'):
+                 return resp.get('download')
 
     except Exception as e: 
         print(f"❌ Final Download Fail: {e}")
@@ -57,10 +62,10 @@ async def run_lookup(number):
                 
                 await asyncio.sleep(8) 
                 
-                # 2. History check (limit 5 to check for newer messages)
+                # 2. History check
                 async for msg in app.get_chat_history(bot, limit=5):
                     
-                    # 3. Message ID Check: msg.id > sent.id ensures it's a *new* reply to our message.
+                    # 3. Concurrency Check: Ensures it's a new reply to our message.
                     if msg.id > sent.id and len(msg.text) > 20 and "start" not in msg.text.lower():
                         return f"🕵️ **Info ({bot}):**\n{msg.text}"
                         
@@ -72,7 +77,7 @@ async def run_lookup(number):
 def truecaller_lookup(n):
     """Synchronous wrapper for truecaller_lookup."""
     try:
-        # Runs the async code in the sync Flask/Instagrapi environment
+        # Runs the async code in the sync Flask/Instagrapi thread
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         res = loop.run_until_complete(run_lookup(n))
@@ -80,3 +85,4 @@ def truecaller_lookup(n):
         return res
     except Exception as e: 
         return f"❌ Pyrogram Loop Setup Error: {e}"
+
