@@ -4,10 +4,12 @@ from datetime import datetime
 
 # Initialize connection safely
 try:
+    # Attempt to connect
     client = pymongo.MongoClient(Config.MONGO_URI, serverSelectionTimeoutMS=5000)
     db = client['InstaSuperBot']
     users_col = db['users']
-    # Test connection
+    
+    # Test the connection to ensure it's real
     client.server_info()
     print("✅ MongoDB Connection Established")
 except Exception as e: 
@@ -15,7 +17,10 @@ except Exception as e:
     print(f"⚠️ MongoDB Failed (Bot will run without memory): {e}")
 
 def get_user_memory(user_id):
-    if not users_col: return ""
+    # FIX: Explicit check for None
+    if users_col is None: 
+        return ""
+    
     try:
         data = users_col.find_one({"_id": user_id})
         if not data or "history" not in data: return ""
@@ -24,11 +29,13 @@ def get_user_memory(user_id):
     except: return ""
 
 def save_interaction(uid, u_msg, b_msg):
-    if users_col:
+    # FIX: Explicit check for None
+    if users_col is not None:
         try:
             users_col.update_one(
                 {"_id": uid}, 
                 {"$push": {"history": {"u": u_msg, "b": b_msg}}, "$setOnInsert": {"joined": datetime.now()}}, 
                 upsert=True
             )
-        except: pass # Silent fail
+        except Exception as e:
+            print(f"⚠️ DB Save Error: {e}")
