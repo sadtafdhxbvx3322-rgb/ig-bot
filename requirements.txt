@@ -1,9 +1,8 @@
 flask
 instagrapi
-google-generativeai
 requests
 python-dotenv
-pymongo
+yt-dlp
+google-generativeai
 pyrogram
 tgcrypto
-yt-dlp
