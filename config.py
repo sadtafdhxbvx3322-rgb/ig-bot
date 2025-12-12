@@ -1,8 +1,14 @@
 import os
-from dotenv import load_dotenv
 
-# Load .env file (for local testing)
-load_dotenv() 
+# --- CRITICAL FIX FOR RENDER ---
+# This checks if dotenv exists before trying to load it.
+# On Render, it will skip this (preventing the crash).
+# On Replit/Local, it will load your .env file.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass 
 
 class Config:
     # --- 1. INSTAGRAM ---
@@ -14,7 +20,7 @@ class Config:
     GEMINI_KEY = os.environ.get("GEMINI_KEY")
     MONGO_URI = os.environ.get("MONGO_URI") or os.environ.get("MONGO_URL")
 
-    # --- 3. TELEGRAM BRIDGE (Safety Check) ---
+    # --- 3. TELEGRAM BRIDGE ---
     TG_API_ID = 0
     try:
         tg_id_str = os.environ.get("TG_API_ID")
