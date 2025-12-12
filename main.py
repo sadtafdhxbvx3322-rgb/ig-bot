@@ -5,65 +5,92 @@ import logging
 import requests
 import re
 import shutil
+import tarfile
 import subprocess
 import yt_dlp
-import imageio_ffmpeg
 from flask import Flask
 from instagrapi import Client
-from pyrogram import Client as TGClient
 from config import Config
 
 # --- LOGGING ---
 logging.basicConfig(level=logging.INFO)
-# Clean up logs
 for lib in ['urllib3', 'instagrapi', 'httpx', 'httpcore', 'yt_dlp']:
     logging.getLogger(lib).setLevel(logging.WARNING)
 
 app = Flask(__name__)
 
 @app.route('/')
-def home(): return "Bot Online (VN Force Fix)"
+def home(): return "Bot Online (FFmpeg + FFprobe Fixed)"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
 
-# ================== 0. FFMPEG ENFORCER ==================
-def setup_ffmpeg():
+# ================== 0. FULL MEDIA TOOLS INSTALLER ==================
+def setup_media_tools():
     """
-    Finds the FFmpeg binary from the library and FORCES it to be executable.
+    Downloads BOTH FFmpeg and FFprobe. 
+    This is required because Instagrapi needs ffprobe to analyze audio.
     """
+    bin_dir = os.path.join(os.getcwd(), "bin")
+    ffmpeg_exe = os.path.join(bin_dir, "ffmpeg")
+    ffprobe_exe = os.path.join(bin_dir, "ffprobe")
+
+    # 1. Check if both exist
+    if os.path.exists(ffmpeg_exe) and os.path.exists(ffprobe_exe):
+        print("✅ FFmpeg & FFprobe already installed.")
+        os.environ["PATH"] += os.pathsep + bin_dir
+        return
+
+    print("⬇️ Downloading Media Tools (FFmpeg + FFprobe)...")
     try:
-        # 1. Get path from library
-        ffmpeg_bin_path = imageio_ffmpeg.get_ffmpeg_exe()
-        print(f"📍 FFmpeg binary found at: {ffmpeg_bin_path}")
+        if os.path.exists(bin_dir): shutil.rmtree(bin_dir)
+        os.makedirs(bin_dir)
 
-        # 2. Force Executable Permissions (Crucial for Render)
-        try:
-            os.chmod(ffmpeg_bin_path, 0o755)
-            print("✅ Permissions updated to 755 (Executable).")
-        except Exception as e:
-            print(f"⚠️ Could not change permissions: {e}")
-
-        # 3. Add directory to System PATH
-        ffmpeg_dir = os.path.dirname(ffmpeg_bin_path)
-        os.environ["PATH"] += os.pathsep + ffmpeg_dir
+        # Download Static Build (Contains both tools)
+        url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+        tar_path = "tools.tar.xz"
         
-        # 4. TEST IT
-        # If this passes, Voice Notes WILL work.
-        result = subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if result.returncode == 0:
-            print("✅ FFmpeg System Test: PASSED")
-        else:
-            print("❌ FFmpeg System Test: FAILED")
-            
+        resp = requests.get(url, stream=True)
+        with open(tar_path, 'wb') as f:
+            for chunk in resp.iter_content(4096):
+                f.write(chunk)
+        
+        # Extract
+        print("📦 Extracting...")
+        with tarfile.open(tar_path) as tar:
+            tar.extractall(path=bin_dir)
+        
+        # Locate the inner folder (name changes with version)
+        inner_folder = [f for f in os.listdir(bin_dir) if "ffmpeg-" in f and os.path.isdir(os.path.join(bin_dir, f))][0]
+        source_dir = os.path.join(bin_dir, inner_folder)
+
+        # Move binaries to main bin folder
+        shutil.move(os.path.join(source_dir, "ffmpeg"), ffmpeg_exe)
+        shutil.move(os.path.join(source_dir, "ffprobe"), ffprobe_exe)
+        
+        # CRITICAL: Grant Permissions to BOTH
+        os.chmod(ffmpeg_exe, 0o755)
+        os.chmod(ffprobe_exe, 0o755)
+        
+        # Add to Path
+        os.environ["PATH"] += os.pathsep + bin_dir
+        
+        # Verify
+        subprocess.run([ffmpeg_exe, "-version"], stdout=subprocess.DEVNULL, check=True)
+        subprocess.run([ffprobe_exe, "-version"], stdout=subprocess.DEVNULL, check=True)
+        print("✅ Media Tools Installed & Verified!")
+        
+        # Cleanup
+        if os.path.exists(tar_path): os.remove(tar_path)
+        shutil.rmtree(source_dir)
+        
     except Exception as e:
-        print(f"❌ FFmpeg Setup Critical Fail: {e}")
+        print(f"❌ Install Failed: {e}")
 
 # ================== 1. SMART AI ==================
 def ask_ai(text):
     try:
-        system = "Reply in the same language as the user. Keep it helpful and short."
-        prompt = f"{system}\nUser: {text}"
+        prompt = f"Reply in the same language as the user. Keep it helpful and short. User: {text}"
         url = f"https://text.pollinations.ai/{prompt}"
         return requests.get(url, timeout=10).text.strip()
     except: return None
@@ -74,10 +101,8 @@ def download_music(query):
         clean_query = query.lower().replace("play ", "").strip()
         print(f"🎵 Searching: {clean_query}")
         
-        # Instagrapi expects M4A for best compatibility
         filename = f"song_{int(time.time())}.m4a"
         path = os.path.join(os.getcwd(), filename)
-        
         if os.path.exists(path): os.remove(path)
 
         ydl_opts = {
@@ -97,36 +122,10 @@ def download_music(query):
         return None, "Song not found."
     except Exception as e: return None, str(e)
 
-# ================== 3. TELEGRAM SEARCH ==================
-async def run_tg_search(number):
-    if not Config.SESSION_STRING: return "⚠️ Config Missing"
-    bots = [Config.PRIMARY_BOT, Config.BACKUP_BOT]
-    try:
-        async with TGClient("worker", api_id=Config.TG_API_ID, api_hash=Config.TG_API_HASH, session_string=Config.SESSION_STRING, in_memory=True) as app:
-            for bot in bots:
-                try:
-                    sent = await app.send_message(bot, number)
-                    await asyncio.sleep(5)
-                    async for msg in app.get_chat_history(bot, limit=3):
-                        if msg.id > sent.id and "start" not in msg.text.lower():
-                            return f"🕵️ Info ({bot}):\n{msg.text}"
-                except: continue
-    except Exception as e: return f"❌ TG Error: {e}"
-    return "❌ No Data Found."
-
-def search_number(n):
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        res = loop.run_until_complete(run_tg_search(n))
-        loop.close()
-        return res
-    except: return "❌ System Error"
-
 # ================== MAIN BOT ==================
 def run_bot():
-    # Step 1: Force FFmpeg
-    setup_ffmpeg()
+    # Step 1: Install FFmpeg AND FFprobe
+    setup_media_tools()
 
     print("🚀 Starting INSTA BOT...")
     cl = Client()
@@ -156,38 +155,27 @@ def run_bot():
                 print(f"📩 Msg: {text}")
                 tid = t.pk
 
-                # --- A. NUMBER SEARCH ---
-                if re.search(r'(\+?\d{10,})', text):
-                    phone = re.search(r'(\+?\d{10,})', text).group(1)
-                    cl.direct_answer(tid, f"🕵️ Checking {phone}...")
-                    cl.direct_answer(tid, search_number(phone))
-
-                # --- B. MUSIC (VOICE NOTE ONLY) ---
-                elif "play " in text.lower():
+                # --- MUSIC (VOICE NOTE) ---
+                if "play " in text.lower():
                     cl.direct_answer(tid, "🔍 Searching...")
                     path, err = download_music(text)
                     
                     if path:
                         cl.direct_answer(tid, "🚀 Uploading Voice Note...")
                         try:
-                            # 1. Try sending as proper Voice Note
-                            # We pass fake waveform/duration to speed it up and skip internal probe if possible
-                            cl.direct_send_voice(path, [t.users[0].pk], waveform=[0]*100, duration_ms=30000)
+                            # Now that we have FFprobe, this will work!
+                            cl.direct_send_voice(path, [t.users[0].pk])
                             cl.direct_answer(tid, "✅ Sent.")
                         except Exception as e:
                             print(f"VN Error: {e}")
-                            # 2. If that fails, send as AUDIO FILE (Not a link, actual file)
-                            try:
-                                cl.direct_send_file(path, [t.users[0].pk])
-                                cl.direct_answer(tid, "✅ Sent as Audio File.")
-                            except Exception as e2:
-                                cl.direct_answer(tid, f"❌ Critical Upload Error: {e2}")
+                            # Final Safety Net
+                            cl.direct_answer(tid, f"❌ Voice Note Failed: {e}\n(Try again in 1 min)")
                         finally:
                             if os.path.exists(path): os.remove(path)
                     else:
                         cl.direct_answer(tid, "❌ Song not found.")
 
-                # --- C. AI CHAT ---
+                # --- AI CHAT ---
                 else:
                     reply = ask_ai(text)
                     if reply: cl.direct_answer(tid, reply)
