@@ -8,7 +8,7 @@ from flask import Flask
 from instagrapi import Client
 import google.generativeai as genai
 from tools import download_media, truecaller_lookup
-# from database import get_user_memory, save_interaction # DB Disabled to stop "System Error"
+# from database import get_user_memory, save_interaction # DB Disabled for stability
 from config import Config
 
 # Quiet Logs
@@ -24,39 +24,61 @@ def home(): return "Bot Online"
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
 
-# --- NEW: Safe AI Function ---
+# --- NEW: Smart Model Selector (Fixes 404) ---
+def get_working_model():
+    """
+    Asks Google for available models and picks the best one automatically.
+    """
+    try:
+        print("🔎 Scanning for valid AI models...")
+        valid_models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                valid_models.append(m.name)
+        
+        if not valid_models:
+            print("❌ No AI models found for this Key.")
+            return None
+
+        # Priority Selection: Flash -> Pro -> 1.5 -> Any
+        chosen = next((m for m in valid_models if 'flash' in m), None)
+        if not chosen:
+            chosen = next((m for m in valid_models if 'gemini-1.5' in m), None)
+        if not chosen:
+            chosen = next((m for m in valid_models if 'pro' in m), None)
+        if not chosen:
+            chosen = valid_models[0]
+
+        print(f"✅ Auto-Selected Model: {chosen}")
+        return genai.GenerativeModel(chosen)
+
+    except Exception as e:
+        print(f"⚠️ Model Scan Failed: {e}. Trying default 'gemini-pro'...")
+        return genai.GenerativeModel("gemini-pro")
+
 def ask_ai(model, prompt):
     """
-    Retries up to 3 times if Google says '429 Quota Exceeded'.
+    Safe AI Asker with Retry Logic
     """
+    if not model: return None
     for attempt in range(3):
         try:
             return model.generate_content(prompt).text.strip()
         except Exception as e:
-            if "429" in str(e):
-                print(f"⏳ AI Quota Limit. Waiting 5s... (Attempt {attempt+1})")
+            if "429" in str(e): # Quota Limit
                 time.sleep(5)
+            elif "404" in str(e): # Model not found mid-run
+                return "AI Model Error. Please restart bot."
             else:
-                print(f"⚠️ AI Error: {e}")
                 return None
-    return "Mera dimag abhi thoda thak gaya hai (Server Busy). Try later!"
+    return "Server Busy. Try later."
 
 def run_bot():
-    print("🚀 Starting FINAL STABLE Bot...")
+    print("🚀 Starting FINAL Auto-Healing Bot...")
 
-    # 1. AI SETUP
+    # 1. AI SETUP (With Auto-Fix)
     genai.configure(api_key=Config.GEMINI_KEY)
-    model = None
-    try:
-        # Fallback to standard gemini-pro if flash fails
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        print("✅ AI Connected")
-    except:
-        try:
-            model = genai.GenerativeModel("gemini-pro")
-            print("✅ Switched to Backup Model (Pro)")
-        except Exception as e:
-            print(f"❌ AI Init Failed: {e}")
+    model = get_working_model()
 
     # 2. INSTAGRAM LOGIN
     cl = Client()
@@ -81,7 +103,6 @@ def run_bot():
                 if not t.messages: continue
                 msg = t.messages[0]
                 
-                # Check duplicates & Self
                 if msg.id in processed_msg_ids: continue
                 if str(msg.user_id) == my_id: continue
 
@@ -103,7 +124,6 @@ def run_bot():
                         
                         target = safe_text
                         if "play " in safe_text.lower() and "http" not in safe_text and model:
-                            # Use new safe AI function
                             ai_url = ask_ai(model, f"Find YouTube URL for: '{safe_text}'. Reply ONLY with URL.")
                             if ai_url and "http" in ai_url:
                                 target = ai_url.split()[-1]
@@ -113,7 +133,7 @@ def run_bot():
                         if link:
                             cl.direct_answer(thread_id, f"✅ Link:\n{link}")
                         else:
-                            cl.direct_answer(thread_id, "❌ Could not download. Try a different link.")
+                            cl.direct_answer(thread_id, "❌ Could not download.")
 
                     # 2. AI Chat
                     elif model:
@@ -123,7 +143,6 @@ def run_bot():
 
                 except Exception as inner_e:
                     print(f"⚠️ Task Failed: {inner_e}")
-                    # No error sent to user to keep chat clean
 
             if len(processed_msg_ids) > 1000:
                 processed_msg_ids.clear()
