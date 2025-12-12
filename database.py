@@ -2,26 +2,33 @@ import pymongo
 from config import Config
 from datetime import datetime
 
-# Database Connection
+# Initialize connection safely
 try:
-    client = pymongo.MongoClient(Config.MONGO_URI)
+    client = pymongo.MongoClient(Config.MONGO_URI, serverSelectionTimeoutMS=5000)
     db = client['InstaSuperBot']
     users_col = db['users']
-except:
+    # Test connection
+    client.server_info()
+    print("✅ MongoDB Connection Established")
+except Exception as e: 
     users_col = None
+    print(f"⚠️ MongoDB Failed (Bot will run without memory): {e}")
 
 def get_user_memory(user_id):
-    if users_col is None: return ""
+    if not users_col: return ""
     try:
         data = users_col.find_one({"_id": user_id})
         if not data or "history" not in data: return ""
-        return "\n".join([f"User: {h['user']}\nBot: {h['bot']}" for h in data['history'][-5:]])
+        # Return last 5 interactions
+        return "\n".join([f"User: {h['u']}\nBot: {h['b']}" for h in data['history'][-5:]])
     except: return ""
 
-def save_interaction(user_id, u_msg, b_msg):
-    if users_col is None: return
-    try:
-        users_col.update_one({"_id": user_id}, 
-            {"$push": {"history": {"user": u_msg, "bot": b_msg, "time": datetime.now()}}, 
-             "$setOnInsert": {"joined": datetime.now()}}, upsert=True)
-    except: pass
+def save_interaction(uid, u_msg, b_msg):
+    if users_col:
+        try:
+            users_col.update_one(
+                {"_id": uid}, 
+                {"$push": {"history": {"u": u_msg, "b": b_msg}}, "$setOnInsert": {"joined": datetime.now()}}, 
+                upsert=True
+            )
+        except: pass # Silent fail
