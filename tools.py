@@ -3,60 +3,52 @@ import asyncio
 from pyrogram import Client
 from config import Config
 import time
-import random
 import os
+import yt_dlp # Direct YouTube Library
 
+# --- 1. DIRECT DOWNLOADER (Using yt-dlp) ---
 def download_media(url, is_audio=False):
     """
-    Returns the DIRECT URL of the media using Cobalt.
-    """
-    # 2025 Working Mirrors
-    instances = [
-        "https://api.cobalt.tools/api/json",       # Official (Best)
-        "https://cobalt.arms.nu/api/json",         # Backup 1
-        "https://api.server.cobalt.tools/api/json" # Backup 2
-    ]
-    random.shuffle(instances)
-
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Origin": "https://cobalt.tools",
-        "Referer": "https://cobalt.tools/"
-    }
-    
-    payload = {
-        "url": url, 
-        "vQuality": "720", 
-        "filenamePattern": "classic",
-        "disableMetadata": True
-    }
-
-    if is_audio: 
-        payload.update({"isAudioOnly": "true", "aFormat": "mp3"})
-
-    for base_url in instances:
-        try:
-            resp = requests.post(base_url, json=payload, headers=headers, timeout=15)
-            if resp.status_code != 200: continue
-            
-            data = resp.json()
-            # Try to find the direct link
-            if "url" in data: return data["url"]
-            if "picker" in data: return data["picker"][0]["url"]
-            if "audio" in data: return data["audio"]
-            
-        except: continue
-
-    return None
-
-def download_file_locally(url, filename="temp_audio.mp3"):
-    """
-    Downloads a file to the local system (required for Voice Note upload).
+    Uses yt-dlp to extract media URL directly from YouTube/Instagram/etc.
+    Bypasses Cobalt/External APIs completely.
     """
     try:
-        resp = requests.get(url, stream=True)
+        # Options for yt-dlp
+        ydl_opts = {
+            'format': 'bestaudio/best' if is_audio else 'best',
+            'quiet': True,
+            'no_warnings': True,
+            'noplaylist': True,
+            # Render ke liye geo-bypass options
+            'geo_bypass': True,
+            'nocheckcertificate': True,
+        }
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            # Get the direct download URL
+            if 'url' in info:
+                return info['url']
+            elif 'entries' in info:
+                # Sometimes it returns a playlist object for single video
+                return info['entries'][0]['url']
+            else:
+                return None
+
+    except Exception as e:
+        print(f"⚠️ yt-dlp Error: {e}")
+        return None
+
+# --- 2. LOCAL FILE SAVER ---
+def download_file_locally(url, filename="song.mp3"):
+    """Downloads audio to temp folder for upload."""
+    try:
+        # User-Agent lagana zaroori hai nahi toh Google block kar dega
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        resp = requests.get(url, headers=headers, stream=True, timeout=20)
         if resp.status_code == 200:
             path = f"/tmp/{filename}" if os.path.exists("/tmp") else filename
             with open(path, 'wb') as f:
@@ -64,11 +56,14 @@ def download_file_locally(url, filename="temp_audio.mp3"):
                     f.write(chunk)
             return path
     except Exception as e:
-        print(f"⚠️ Download Local Failed: {e}")
+        print(f"⚠️ Local Save Error: {e}")
     return None
 
+# --- 3. TELEGRAM LOOKUP (Timeout Fix) ---
 async def run_lookup(number):
-    if not Config.SESSION_STRING: return "⚠️ Telegram Config Missing"
+    if not Config.SESSION_STRING: 
+        return "⚠️ Error: Telegram Session String Missing in Config."
+
     bots = [Config.PRIMARY_BOT, Config.BACKUP_BOT]
 
     try:
@@ -76,14 +71,17 @@ async def run_lookup(number):
             for bot in bots:
                 try:
                     sent = await app.send_message(bot, number)
-                    await asyncio.sleep(4) 
+                    await asyncio.sleep(5) # Wait for reply
                     async for msg in app.get_chat_history(bot, limit=3):
-                        if msg.id > sent.id:
+                        if msg.id > sent.id and "start" not in msg.text.lower():
                             return f"🕵️ Info ({bot}):\n{msg.text}"
                 except: continue
     except Exception as e:
-        return f"❌ TG Error: {e}"
-    return "❌ No Response."
+        if "401" in str(e) or "Auth" in str(e):
+            return "❌ Session Expired. Regenerate String."
+        return f"❌ TG Connect Error: {e}"
+
+    return "❌ No Data Found."
 
 def truecaller_lookup(n):
     try:
@@ -92,4 +90,4 @@ def truecaller_lookup(n):
         res = loop.run_until_complete(run_lookup(n))
         loop.close()
         return res
-    except: return "❌ System Error"
+    except: return "❌ System Loop Error"
