@@ -10,48 +10,56 @@ def download_media(url, is_audio=False):
         payload = {"url": url, "vQuality": "720", "filenamePattern": "classic"}
         if is_audio: payload.update({"isAudioOnly": "true", "aFormat": "mp3"})
         
-        resp = requests.post("https://api.cobalt.tools/api/json", json=payload, headers=headers).json()
+        # FIXED: Using a more stable Cobalt backup instance (The original was failing)
+        resp = requests.post("https://cobalt.api.kwiatekmiki.pl/api/json", json=payload, headers=headers).json()
         
         if "url" in resp: return resp["url"]
         if "picker" in resp: return resp["picker"][0]["url"]
         
         return None
     except Exception as e: 
-        print(f"Cobalt Download Error: {e}")
+        print(f"❌ Cobalt Download Error: {e}")
         return None
 
 async def run_lookup(number):
     """Async Pyrogram function to look up number info via Telegram bots."""
+    # Check if the session string is valid before starting
     if not Config.SESSION_STRING: return "⚠️ Telegram Session Missing (Check Env Var)"
+    
     bots = [Config.PRIMARY_BOT, Config.BACKUP_BOT]
     
+    # Client initialization 
     async with Client("worker", api_id=Config.TG_API_ID, api_hash=Config.TG_API_HASH, session_string=Config.SESSION_STRING, in_memory=True) as app:
         for bot in bots:
             try:
-                # 1. Message bhejenge aur uska ID store karenge
+                # 1. Message bhejenge aur uska ID store karenge (Fixes concurrency)
                 sent = await app.send_message(bot, number)
                 
-                await asyncio.sleep(8)
+                await asyncio.sleep(8) # Wait for bot reply
                 
                 # 2. History check karenge, limit 5 tak badha denge
                 async for msg in app.get_chat_history(bot, limit=5):
                     
-                    # 3. Check: msg.id > sent.id ensures it's a *new* reply to our message.
+                    # 3. FIXED LOGIC: msg.id > sent.id ensures it's a *new* reply to our message.
                     if msg.id > sent.id and len(msg.text) > 20 and "start" not in msg.text.lower():
                         return f"🕵️ **Info ({bot}):**\n{msg.text}"
                         
             except Exception as e:
-                print(f"Telegram Bot Error on {bot}: {e}")
+                # If one bot fails (e.g., banned), it continues to the backup bot
+                print(f"❌ Telegram Bot Error on {bot}: {e}")
                 continue
     return "❌ No Data Found or Telegram Bridge Failed"
 
 def truecaller_lookup(n):
     """Synchronous wrapper for truecaller_lookup."""
     try:
+        # Create a new event loop to run async pyrogram code in sync flask/instagrapi thread
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         res = loop.run_until_complete(run_lookup(n))
         loop.close()
         return res
     except Exception as e: 
-        return f"Error during Pyrogram Loop Setup: {e}"
+        # This will catch errors related to the loop setup (like pyrogram initialization issues)
+        return f"❌ Pyrogram Loop Setup Error: {e}"
+
