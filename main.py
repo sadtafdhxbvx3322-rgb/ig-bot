@@ -4,11 +4,10 @@ import json
 import logging
 import requests
 import re
-import asyncio
-import yt_dlp
-import tarfile
 import shutil
 import subprocess
+import yt_dlp
+import imageio_ffmpeg
 from flask import Flask
 from instagrapi import Client
 from pyrogram import Client as TGClient
@@ -16,80 +15,55 @@ from config import Config
 
 # --- LOGGING ---
 logging.basicConfig(level=logging.INFO)
-# Clean logs
+# Clean up logs
 for lib in ['urllib3', 'instagrapi', 'httpx', 'httpcore', 'yt_dlp']:
     logging.getLogger(lib).setLevel(logging.WARNING)
 
 app = Flask(__name__)
 
 @app.route('/')
-def home(): return "Bot Online (Voice Note Fixed)"
+def home(): return "Bot Online (VN Force Fix)"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
 
-# ================== 0. FFMPEG INSTALLER (PERMISSION FIX) ==================
-def install_ffmpeg():
+# ================== 0. FFMPEG ENFORCER ==================
+def setup_ffmpeg():
     """
-    Downloads, Installs, and Enables FFmpeg on Render.
+    Finds the FFmpeg binary from the library and FORCES it to be executable.
     """
-    ffmpeg_dir = "/tmp/ffmpeg_bin"
-    ffmpeg_bin = f"{ffmpeg_dir}/ffmpeg"
-    
-    # Check if already works
     try:
-        subprocess.run([ffmpeg_bin, "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("✅ FFmpeg is already working.")
-        os.environ["PATH"] += os.pathsep + ffmpeg_dir
-        return
-    except:
-        pass
+        # 1. Get path from library
+        ffmpeg_bin_path = imageio_ffmpeg.get_ffmpeg_exe()
+        print(f"📍 FFmpeg binary found at: {ffmpeg_bin_path}")
 
-    print("⬇️ Installing FFmpeg...")
-    try:
-        if os.path.exists(ffmpeg_dir): shutil.rmtree(ffmpeg_dir)
-        os.makedirs(ffmpeg_dir)
+        # 2. Force Executable Permissions (Crucial for Render)
+        try:
+            os.chmod(ffmpeg_bin_path, 0o755)
+            print("✅ Permissions updated to 755 (Executable).")
+        except Exception as e:
+            print(f"⚠️ Could not change permissions: {e}")
 
-        # Download Static Build
-        url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
-        tar_path = "/tmp/ffmpeg.tar.xz"
-        
-        resp = requests.get(url, stream=True)
-        with open(tar_path, 'wb') as f:
-            for chunk in resp.iter_content(1024):
-                f.write(chunk)
-        
-        # Extract
-        print("📦 Extracting...")
-        with tarfile.open(tar_path) as tar:
-            tar.extractall("/tmp")
-        
-        # Locate binary
-        extracted_root = [f for f in os.listdir("/tmp") if "ffmpeg-" in f and os.path.isdir(f"/tmp/{f}")][0]
-        source_bin = f"/tmp/{extracted_root}/ffmpeg"
-        
-        # Move and CHMOD (Critical Fix)
-        shutil.move(source_bin, ffmpeg_bin)
-        os.chmod(ffmpeg_bin, 0o755) # <--- THIS GIVES PERMISSION TO RUN
-        
-        # Cleanup
-        os.remove(tar_path)
-        shutil.rmtree(f"/tmp/{extracted_root}")
-
-        # Add to PATH
+        # 3. Add directory to System PATH
+        ffmpeg_dir = os.path.dirname(ffmpeg_bin_path)
         os.environ["PATH"] += os.pathsep + ffmpeg_dir
         
-        # Final Verification
-        subprocess.run([ffmpeg_bin, "-version"], check=True)
-        print("✅ FFmpeg Installed & Verified!")
-        
+        # 4. TEST IT
+        # If this passes, Voice Notes WILL work.
+        result = subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode == 0:
+            print("✅ FFmpeg System Test: PASSED")
+        else:
+            print("❌ FFmpeg System Test: FAILED")
+            
     except Exception as e:
-        print(f"⚠️ FFmpeg Install Failed: {e}")
+        print(f"❌ FFmpeg Setup Critical Fail: {e}")
 
 # ================== 1. SMART AI ==================
 def ask_ai(text):
     try:
-        prompt = f"Reply in the same language as the user. Keep it helpful and short. User: {text}"
+        system = "Reply in the same language as the user. Keep it helpful and short."
+        prompt = f"{system}\nUser: {text}"
         url = f"https://text.pollinations.ai/{prompt}"
         return requests.get(url, timeout=10).text.strip()
     except: return None
@@ -100,14 +74,16 @@ def download_music(query):
         clean_query = query.lower().replace("play ", "").strip()
         print(f"🎵 Searching: {clean_query}")
         
+        # Instagrapi expects M4A for best compatibility
         filename = f"song_{int(time.time())}.m4a"
-        path = f"/tmp/{filename}"
+        path = os.path.join(os.getcwd(), filename)
+        
         if os.path.exists(path): os.remove(path)
 
         ydl_opts = {
             'format': 'bestaudio[ext=m4a]/best',
             'outtmpl': path,
-            'default_search': 'scsearch1', # SoundCloud (No Login)
+            'default_search': 'scsearch1', # SoundCloud
             'quiet': True,
             'no_warnings': True,
             'geo_bypass': True,
@@ -149,10 +125,10 @@ def search_number(n):
 
 # ================== MAIN BOT ==================
 def run_bot():
-    # Step 1: Install FFmpeg correctly
-    install_ffmpeg()
+    # Step 1: Force FFmpeg
+    setup_ffmpeg()
 
-    print("🚀 Starting FINAL BOT...")
+    print("🚀 Starting INSTA BOT...")
     cl = Client()
     try:
         cl.set_settings(json.loads(Config.INSTA_SESSION))
@@ -180,35 +156,39 @@ def run_bot():
                 print(f"📩 Msg: {text}")
                 tid = t.pk
 
-                # --- FEATURES ---
+                # --- A. NUMBER SEARCH ---
                 if re.search(r'(\+?\d{10,})', text):
-                    # Number Search
                     phone = re.search(r'(\+?\d{10,})', text).group(1)
                     cl.direct_answer(tid, f"🕵️ Checking {phone}...")
                     cl.direct_answer(tid, search_number(phone))
 
+                # --- B. MUSIC (VOICE NOTE ONLY) ---
                 elif "play " in text.lower():
-                    # Music
                     cl.direct_answer(tid, "🔍 Searching...")
                     path, err = download_music(text)
                     
                     if path:
                         cl.direct_answer(tid, "🚀 Uploading Voice Note...")
                         try:
-                            # Ab FFmpeg hai, toh Real Waveform generate hoga
-                            cl.direct_send_voice(path, [t.users[0].pk])
+                            # 1. Try sending as proper Voice Note
+                            # We pass fake waveform/duration to speed it up and skip internal probe if possible
+                            cl.direct_send_voice(path, [t.users[0].pk], waveform=[0]*100, duration_ms=30000)
                             cl.direct_answer(tid, "✅ Sent.")
                         except Exception as e:
                             print(f"VN Error: {e}")
-                            # Fallback to LINK if upload fails (Don't try file upload to avoid 'JPG' error)
-                            cl.direct_answer(tid, f"⚠️ Upload Error (Instagram rejected file).\nHere is the link to listen: https://soundcloud.com/search?q={text.replace('play ','')}")
+                            # 2. If that fails, send as AUDIO FILE (Not a link, actual file)
+                            try:
+                                cl.direct_send_file(path, [t.users[0].pk])
+                                cl.direct_answer(tid, "✅ Sent as Audio File.")
+                            except Exception as e2:
+                                cl.direct_answer(tid, f"❌ Critical Upload Error: {e2}")
                         finally:
                             if os.path.exists(path): os.remove(path)
                     else:
                         cl.direct_answer(tid, "❌ Song not found.")
 
+                # --- C. AI CHAT ---
                 else:
-                    # AI
                     reply = ask_ai(text)
                     if reply: cl.direct_answer(tid, reply)
 
