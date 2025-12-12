@@ -1,4 +1,9 @@
-import os, time, threading, json
+import os
+import time
+import threading
+import json
+import logging
+import traceback
 from flask import Flask
 from instagrapi import Client
 import google.generativeai as genai
@@ -6,109 +11,137 @@ from tools import download_media, truecaller_lookup
 from database import get_user_memory, save_interaction
 from config import Config
 
+# --- LOGGING SETUP (Silence the spam) ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
+for lib in ['urllib3', 'instagrapi', 'httpx', 'httpcore']:
+    logging.getLogger(lib).setLevel(logging.WARNING)
+
 app = Flask(__name__)
+
+# --- STATUS TRACKER ---
+bot_status = {"ai_active": False, "model_name": "None", "errors": 0}
 
 @app.route('/')
 def home():
-    return "Ping Pong! Bot Live. 🏓"
+    return f"Bot Online. AI: {bot_status['model_name']}."
 
 def run_web():
+    # 0.0.0.0 is crucial for Render/Replit
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
 
 def run_bot():
-    print("🤖 Starting Final Robust Bot...")
-    
-    # --- STARTUP DEBUG LOGS (CRITICAL CHECK) ---
-    print(f"DEBUG: GEMINI_KEY Status: {'OK' if Config.GEMINI_KEY and len(Config.GEMINI_KEY) > 10 else 'MISSING/TOO SHORT'}")
-    print(f"DEBUG: TG_API_ID Value: {Config.TG_API_ID}")
-    
-    # 1. AI Setup
+    print("🚀 Starting FASTER Auto-Healing Bot...")
+
+    # 1. AI SETUP
     genai.configure(api_key=Config.GEMINI_KEY)
     model = None
     try:
-        model = genai.GenerativeModel("gemini-2.5-flash") 
-        print("✅ AI Active: gemini-2.5-flash")
+        all_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        chosen_model = next((m for m in all_models if 'flash' in m), None) or all_models[0]
+        model = genai.GenerativeModel(chosen_model)
+        bot_status["ai_active"] = True
+        bot_status["model_name"] = chosen_model
+        print(f"✅ AI Connected: {chosen_model}")
     except Exception as e:
-        print(f"❌ ERROR: GEMINI KEY/MODEL FAILURE: {e}") 
+        print(f"❌ AI Init Failed: {e}")
 
-    # 2. Instagram Login (Assuming Session is OK)
+    # 2. INSTAGRAM LOGIN
     cl = Client()
     try:
         cl.set_settings(json.loads(Config.INSTA_SESSION))
-        cl.get_timeline_feed()
-        print("✅ Session Login Success")
+        cl.login(Config.INSTA_USER, Config.INSTA_PASS)
+        my_id = str(cl.user_id)
+        print(f"✅ Login Success. ID: {my_id}")
     except Exception as e:
-        print(f"❌ INSTA LOGIN FAILED: {e}")
-        # Add password backup login logic here if needed, but session is preferred
+        print(f"🚨 Login Failed: {e}")
+        return
 
-    # 3. Main Loop
+    # 3. MAIN LOOP
+    print("⚡ Speed Mode: ON (Polling every 3s)")
+    processed_msg_ids = set() 
+
     while True:
         try:
-            threads = cl.direct_threads(selected_filter="unread", amount=5)
-            
+            # Fetch top 3 active threads
+            threads = cl.direct_threads(amount=3)
+
             for t in threads:
-                msg = t.messages[0]; text = msg.text; uid = t.users[0].pk
-                print(f"⚡ Replying to {uid}: {text}")
+                if not t.messages: continue
                 
-                # --- DOWNLOAD & MUSIC LOGIC (FIXED) ---
-                is_media_request = "instagram.com" in text or "youtu" in text
-                is_audio_request = "spotify" in text or text.lower().startswith(("play ", "bajao "))
+                msg = t.messages[0]
+                msg_id = msg.id
                 
-                if is_media_request or is_audio_request:
-                    cl.direct_send("🚀 Downloading...", [uid])
-                    
-                    url_to_download = text # Default to direct link
-                    is_audio = False
+                # Deduplication & Self-Check (Prevents Loops)
+                if msg_id in processed_msg_ids: continue
+                if str(msg.user_id) == my_id: continue
 
-                    if is_audio_request and model:
-                         is_audio = True
-                         # AI finds the URL
-                         url_to_download = model.generate_content(f"YouTube Music URL for '{text[5:]}'. ONLY URL.").text.strip()
-                         if "http" not in url_to_download:
-                             cl.direct_send("❌ AI Search Fail: No valid URL found.", [uid])
-                             continue 
-                             
-                    # Execute Download (tools.py will handle Dual-Download fallback)
-                    link = download_media(url_to_download, is_audio)
-                    
-                    # Send specific fail message based on function
-                    cl.direct_send(f"✅ Link:\n{link}" if link else "❌ Failed: External Download API Blocked.", [uid]) 
+                processed_msg_ids.add(msg_id) 
+                
+                text = getattr(msg, 'text', "")
+                uid = t.users[0].pk if t.users else "Unknown"
+                thread_id = t.pk
+                
+                print(f"📩 {uid}: {text}")
 
-                # --- TELEGRAM LOGIC (RETRY & CONCURRENCY FIXED) ---
-                elif text.startswith("+91") or (text.isdigit() and len(text)>9):
-                    cl.direct_send("🕵️ Looking up...", [uid])
+                # --- PROCESSING ---
+                try:
+                    safe_text = text if text else ""
                     
-                    # First Attempt
-                    result = truecaller_lookup(text)
-                    
-                    # If Pyrogram setup fails or thread locks, retry once (Fixes intermittent dead issue)
-                    if "Pyrogram Loop Setup Error" in result or "No Data Found" in result:
-                        print("⚠️ Pyrogram failed on first attempt. Retrying...")
-                        time.sleep(5) 
-                        result = truecaller_lookup(text) # Second attempt
-                    
-                    cl.direct_send(result, [uid]) 
+                    # 1. Music / Download
+                    if "play " in safe_text.lower() or "spotify" in safe_text or "instagram.com" in safe_text:
+                        cl.direct_answer(thread_id, "🔍 Searching...")
+                        
+                        target = safe_text
+                        # AI Music Helper (Extracts song name to URL)
+                        if "play " in safe_text.lower() and "http" not in safe_text and model:
+                            try:
+                                prompt = f"Find the YouTube URL for the song: '{safe_text}'. Reply ONLY with the URL."
+                                ai_resp = model.generate_content(prompt).text.strip()
+                                target = ai_resp.split()[-1] if "http" in ai_resp else ai_resp
+                            except: pass
 
-                else:
-                    # AI Chat
-                    if model:
+                        link = download_media(target, "spotify" in safe_text or "play " in safe_text.lower())
+                        
+                        if link:
+                            cl.direct_answer(thread_id, f"✅ Link:\n{link}")
+                        else:
+                            cl.direct_answer(thread_id, "❌ Could not download. Try a different link.")
+
+                    # 2. Truecaller
+                    elif safe_text.startswith("+91") or (safe_text.isdigit() and len(safe_text) > 9):
+                        cl.direct_answer(thread_id, "🕵️ Checking...")
+                        res = truecaller_lookup(safe_text)
+                        cl.direct_answer(thread_id, res)
+
+                    # 3. AI Chat
+                    elif model:
+                        prompt = f"Reply in Hinglish (Indian slang). User: {safe_text}"
+                        reply = model.generate_content(prompt).text.strip()
+                        
+                        # SEND REPLY
+                        cl.direct_answer(thread_id, reply)
+
+                        # SAVE INTERACTION (Silent Fail to prevent 'System Error')
                         try:
-                            prompt = f"Act as a close Indian friend. Reply in Hinglish (Roman Hindi). Max 15 words. Context:\n{get_user_memory(uid)}\nUser: {text}"
-                            reply = model.generate_content(prompt).text
-                            cl.direct_send(reply, [uid])
-                            save_interaction(uid, text, reply)
-                        except Exception as e:
-                            cl.direct_send(f"❌ AI Chat Error: {e}", [uid])
-                    else:
-                        cl.direct_send("⚠️ AI Brain Offline (Key/Model Fail)", [uid])
+                            save_interaction(uid, safe_text, reply)
+                        except: pass
+
+                except Exception as e:
+                    print(f"⚠️ Error processing msg: {e}")
+                    # Only tell user if MAIN logic failed
+                    try:
+                        cl.direct_answer(thread_id, "⚠️ I'm having a brain freeze (Error)")
+                    except: pass
+
+            if len(processed_msg_ids) > 1000:
+                processed_msg_ids.clear()
 
         except Exception as e:
-            print(f"🚨 MAJOR LOOP CRASH: {e}")
+            print(f"🔥 Loop Error: {e}")
             time.sleep(5)
 
-        time.sleep(3) # Safe speed
+        time.sleep(3)
 
 if __name__ == "__main__":
-    threading.Thread(target=run_web).start()
+    threading.Thread(target=run_web, daemon=True).start()
     run_bot()
-
