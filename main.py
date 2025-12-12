@@ -6,6 +6,8 @@ import requests
 import re
 import asyncio
 import yt_dlp
+import tarfile
+import shutil
 from flask import Flask
 from instagrapi import Client
 from pyrogram import Client as TGClient
@@ -19,10 +21,58 @@ for lib in ['urllib3', 'instagrapi', 'httpx', 'httpcore', 'yt_dlp']:
 app = Flask(__name__)
 
 @app.route('/')
-def home(): return "Bot Online (Voice Note Fix)"
+def home(): return "Bot Online (FFmpeg Enabled)"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
+
+# ================== 0. FFMPEG INSTALLER (The Magic Fix) ==================
+def install_ffmpeg():
+    """
+    Downloads and installs FFmpeg automatically on Render.
+    This fixes the 'Invalid File Format' error for Voice Notes.
+    """
+    ffmpeg_path = "/tmp/ffmpeg"
+    if os.path.exists(f"{ffmpeg_path}/ffmpeg"):
+        # Add to PATH so instagrapi can find it
+        os.environ["PATH"] += os.pathsep + ffmpeg_path
+        print("✅ FFmpeg already installed.")
+        return
+
+    print("⬇️ Installing FFmpeg (Crucial for Voice Notes)...")
+    try:
+        url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
+        tar_path = "/tmp/ffmpeg.tar.xz"
+        
+        # Download
+        resp = requests.get(url, stream=True)
+        with open(tar_path, 'wb') as f:
+            for chunk in resp.iter_content(1024):
+                f.write(chunk)
+        
+        # Extract
+        print("📦 Extracting FFmpeg...")
+        with tarfile.open(tar_path) as tar:
+            tar.extractall("/tmp")
+        
+        # Find the extracted folder name (it changes with version)
+        extracted_folder = [f for f in os.listdir("/tmp") if "ffmpeg-" in f and os.path.isdir(f"/tmp/{f}")][0]
+        
+        # Move binary to clean path
+        if not os.path.exists(ffmpeg_path):
+            os.makedirs(ffmpeg_path)
+        shutil.move(f"/tmp/{extracted_folder}/ffmpeg", f"{ffmpeg_path}/ffmpeg")
+        shutil.move(f"/tmp/{extracted_folder}/ffprobe", f"{ffmpeg_path}/ffprobe")
+        
+        # Add to System PATH
+        os.environ["PATH"] += os.pathsep + ffmpeg_path
+        
+        # Cleanup
+        os.remove(tar_path)
+        print("✅ FFmpeg Installed Successfully!")
+        
+    except Exception as e:
+        print(f"⚠️ FFmpeg Install Failed: {e}")
 
 # ================== 1. SMART AI ==================
 def ask_ai(text):
@@ -33,7 +83,7 @@ def ask_ai(text):
         return requests.get(url, timeout=10).text.strip()
     except: return None
 
-# ================== 2. MUSIC (SoundCloud) ==================
+# ================== 2. MUSIC DOWNLOADER ==================
 def download_music(query):
     try:
         clean_query = query.lower().replace("play ", "").strip()
@@ -46,7 +96,7 @@ def download_music(query):
         ydl_opts = {
             'format': 'bestaudio[ext=m4a]/best',
             'outtmpl': path,
-            'default_search': 'scsearch1',
+            'default_search': 'scsearch1', # SoundCloud
             'quiet': True,
             'no_warnings': True,
             'geo_bypass': True,
@@ -60,7 +110,7 @@ def download_music(query):
         return None, "Song not found."
     except Exception as e: return None, str(e)
 
-# ================== 3. TELEGRAM ==================
+# ================== 3. TELEGRAM SEARCH ==================
 async def run_tg_search(number):
     if not Config.SESSION_STRING: return "⚠️ Config Missing"
     bots = [Config.PRIMARY_BOT, Config.BACKUP_BOT]
@@ -88,6 +138,9 @@ def search_number(n):
 
 # ================== MAIN BOT ==================
 def run_bot():
+    # Step 0: Install FFmpeg First!
+    install_ffmpeg()
+    
     print("🚀 Starting FINAL BOT...")
 
     cl = Client()
@@ -125,7 +178,7 @@ def run_bot():
                     res = search_number(phone)
                     cl.direct_answer(tid, res)
 
-                # --- B. MUSIC (Voice Note FIX) ---
+                # --- B. MUSIC (Voice Note) ---
                 elif "play " in text.lower():
                     cl.direct_answer(tid, "🔍 Searching...")
                     path, err = download_music(text)
@@ -133,21 +186,17 @@ def run_bot():
                     if path:
                         cl.direct_answer(tid, "🚀 Uploading Voice Note...")
                         try:
-                            # CRITICAL FIX: Fake Waveform bypasses FFmpeg check
-                            # Hum fake waveform bhej rahe hain taaki error na aaye
-                            cl.direct_send_voice(
-                                path, 
-                                user_ids=[t.users[0].pk],
-                                waveform=[0]*100, # Fake visual
-                                duration_ms=30000 # Fake duration (30s)
-                            )
+                            # Ab FFmpeg hai, toh 'waveform' fake dene ki zarurat nahi, 
+                            # lekin speed ke liye fake rakh sakte hain.
+                            # Hum real processing hone denge taaki format sahi rahe.
+                            cl.direct_send_voice(path, [t.users[0].pk])
                             cl.direct_answer(tid, "✅ Sent.")
                         except Exception as e:
-                            print(f"Voice Failed: {e}. Trying File...")
+                            print(f"VN Error: {e}")
+                            # Agar VN fail hua, toh File bhejo (Fallback)
                             try:
-                                # Fallback: Audio Attachment (Always works)
-                                cl.direct_send_file(path, user_ids=[t.users[0].pk])
-                                cl.direct_answer(tid, "✅ Sent as Audio File (Voice Note failed).")
+                                cl.direct_send_file(path, [t.users[0].pk])
+                                cl.direct_answer(tid, "✅ Sent as Audio File (VN Failed).")
                             except Exception as e2:
                                 cl.direct_answer(tid, f"❌ Upload Error: {e2}")
                         finally:
@@ -155,7 +204,7 @@ def run_bot():
                     else:
                         cl.direct_answer(tid, "❌ Song not found.")
 
-                # --- C. AI CHAT ---
+                # --- C. SMART AI ---
                 else:
                     reply = ask_ai(text)
                     if reply: cl.direct_answer(tid, reply)
