@@ -6,3 +6,4 @@ yt-dlp
 google-generativeai
 pyrogram
 tgcrypto
+imageio-ffmpeg
