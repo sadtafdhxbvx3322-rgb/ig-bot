@@ -1,142 +1,79 @@
 import os
 import time
-import threading
 import json
 import logging
-import re
-import traceback
 from flask import Flask
 from instagrapi import Client
-import google.generativeai as genai
-from tools import download_media, truecaller_lookup, download_file_locally
 from config import Config
 
+# --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
-for lib in ['urllib3', 'instagrapi', 'httpx', 'httpcore']:
-    logging.getLogger(lib).setLevel(logging.WARNING)
-
 app = Flask(__name__)
 
 @app.route('/')
-def home(): return "Debug Bot Online"
+def home(): return "Simple Bot Online"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
 
-def get_ai_model():
-    try:
-        valid = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # Prefer Flash, then Pro
-        return genai.GenerativeModel(next((m for m in valid if 'flash' in m), valid[0]))
-    except: return None
-
-def ask_ai(model, prompt):
-    if not model: return None
-    for i in range(2):
-        try: return model.generate_content(prompt).text.strip()
-        except: time.sleep(1)
-    return None
-
 def run_bot():
-    print("🚀 Starting DEBUG Bot...")
-    genai.configure(api_key=Config.GEMINI_KEY)
-    model = get_ai_model()
+    print("🚀 Starting SIMPLE TEST Bot...")
 
+    # 1. LOGIN
     cl = Client()
     try:
-        cl.set_settings(json.loads(Config.INSTA_SESSION))
-        cl.login(Config.INSTA_USER, Config.INSTA_PASS)
+        # Session load karne ki koshish
+        try:
+            cl.set_settings(json.loads(Config.INSTA_SESSION))
+            cl.login(Config.INSTA_USER, Config.INSTA_PASS)
+        except:
+            # Agar session fail ho, toh fresh login
+            print("⚠️ Session failed. Trying fresh login...")
+            cl.login(Config.INSTA_USER, Config.INSTA_PASS)
+            
         my_id = str(cl.user_id)
-        print(f"✅ Logged in: {my_id}")
+        print(f"✅ Login Success! Bot ID: {my_id}")
     except Exception as e:
-        print(f"Login Fail: {e}")
+        print(f"🔥 LOGIN DEAD: {e}")
+        # Agar login fail hua toh yahi ruk jao
         return
 
+    print("👀 Watching messages...")
     processed = set()
 
     while True:
         try:
-            threads = cl.direct_threads(amount=3)
+            # Threads fetch karo
+            threads = cl.direct_threads(amount=5)
+
             for t in threads:
                 if not t.messages: continue
                 msg = t.messages[0]
-                if msg.id in processed or str(msg.user_id) == my_id: continue
-                processed.add(msg.id)
-
-                text = getattr(msg, 'text', "").strip()
-                if not text: continue
                 
-                print(f"📩 Debug Msg: {text}")
-                tid = t.pk
+                # Check duplicates & Self
+                if msg.id in processed: continue
+                if str(msg.user_id) == my_id: continue
 
-                # --- DEBUG: CHECK LOGIC ---
+                processed.add(msg.id)
+                
+                text = msg.text
+                print(f"📩 Message Recieved: {text}")
+                
+                # --- BASIC REPLY ---
                 try:
-                    # 1. STRICT NUMBER SEARCH
-                    # This Regex checks for 10 digits.
-                    # Debug: We print if regex matches.
-                    number_match = re.search(r'(\+?\d{10,})', text)
-                    
-                    if number_match:
-                        phone_num = number_match.group(1)
-                        # DEBUG RESPONSE
-                        cl.direct_answer(tid, f"🐞 Debug: Number detected ({phone_num}). Connecting to TG...")
-                        
-                        res = truecaller_lookup(phone_num)
-                        cl.direct_answer(tid, res)
-                    
-                    # 2. DOWNLOAD & VOICE NOTE
-                    elif "play " in text.lower() or "spotify" in text.lower() or "instagram.com" in text.lower():
-                        cl.direct_answer(tid, "🐞 Debug: Media request detected. Step 1: Searching...")
-                        
-                        target = text
-                        # Step 1: AI Search
-                        if "play " in text.lower() and "http" not in text and model:
-                            ai_resp = ask_ai(model, f"Find YouTube URL for '{text}'. Reply ONLY with URL.")
-                            if ai_resp and "http" in ai_resp: 
-                                target = ai_resp.split()[-1]
-                                cl.direct_answer(tid, f"🐞 Debug: AI found URL: {target}")
-                            else:
-                                cl.direct_answer(tid, "⚠️ Debug: AI could not find URL.")
-
-                        # Step 2: Extract Link (yt-dlp)
-                        cl.direct_answer(tid, "🐞 Debug: Step 2: Extracting Link (yt-dlp)...")
-                        direct_link, error_msg = download_media(target, is_audio=True)
-
-                        if not direct_link:
-                            cl.direct_answer(tid, f"❌ Extraction Failed. Reason:\n{error_msg}")
-                        else:
-                            # Step 3: Download Locally
-                            cl.direct_answer(tid, "🐞 Debug: Step 3: Downloading to server...")
-                            local_path, save_error = download_file_locally(direct_link, "song.mp3")
-                            
-                            if local_path:
-                                # Step 4: Upload
-                                cl.direct_answer(tid, "🐞 Debug: Step 4: Uploading Voice Note...")
-                                try:
-                                    cl.direct_send_voice(local_path, [t.users[0].pk])
-                                    cl.direct_answer(tid, "✅ Upload Complete.")
-                                    os.remove(local_path)
-                                except Exception as upload_e:
-                                    cl.direct_answer(tid, f"❌ Upload Failed: {upload_e}")
-                            else:
-                                cl.direct_answer(tid, f"❌ Local Save Failed: {save_error}")
-
-                    # 3. AI CHAT
-                    elif model:
-                        # Fallback
-                        reply = ask_ai(model, f"Reply in Hinglish. User: {text}")
-                        if reply: cl.direct_answer(tid, reply)
-
-                except Exception as logic_e:
-                    cl.direct_answer(tid, f"🔥 CRITICAL LOGIC ERROR: {logic_e}")
-                    traceback.print_exc()
+                    cl.direct_answer(t.pk, f"✅ Test Successful. I heard: {text}")
+                    print("✅ Reply Sent.")
+                except Exception as e:
+                    print(f"❌ Reply Failed: {e}")
 
         except Exception as e:
-            print(f"🔥 Loop Error: {e}")
+            print(f"⚠️ Loop Error: {e}")
             time.sleep(5)
-        
+
         time.sleep(5)
 
 if __name__ == "__main__":
+    # Web server alag thread mein
+    import threading
     threading.Thread(target=run_web, daemon=True).start()
     run_bot()
