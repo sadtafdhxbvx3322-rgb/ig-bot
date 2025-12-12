@@ -4,9 +4,11 @@ import json
 import logging
 import requests
 import re
+import asyncio
 import yt_dlp
 from flask import Flask
 from instagrapi import Client
+from pyrogram import Client as TGClient
 from config import Config
 
 # --- LOGGING ---
@@ -17,73 +19,86 @@ for lib in ['urllib3', 'instagrapi', 'httpx', 'httpcore', 'yt_dlp']:
 app = Flask(__name__)
 
 @app.route('/')
-def home(): return "Bot Online (Smart AI Mode)"
+def home(): return "Bot Online (Upload Fix)"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
 
-# ================== 1. SMART AI (No Cringe Slang) ==================
+# ================== 1. SMART AI ==================
 def ask_ai(text):
-    """
-    Uses Pollinations AI but with a strictly 'Helpful & Adaptive' persona.
-    """
     try:
-        # --- NEW PROMPT STRATEGY ---
-        # Ye prompt bot ko force karega ki wo tumhari language match kare.
-        system_instruction = (
-            "You are a helpful and smart Instagram assistant. "
-            "IMPORTANT: Reply in the SAME LANGUAGE as the user. "
-            "If the user speaks English, reply in normal English. "
-            "If the user speaks Hindi/Hinglish, reply in Hinglish. "
-            "Do NOT use excessive slang like 'chill maar' or 'kya scene hai' unless the user does. "
-            "Keep replies short, logical, and directly answer the question."
-        )
-        
-        prompt = f"{system_instruction}\n\nUser Message: {text}"
+        system = "Reply in the same language as user. Be helpful and short."
+        prompt = f"{system}\nUser: {text}"
         url = f"https://text.pollinations.ai/{prompt}"
-        
-        resp = requests.get(url, timeout=10)
-        if resp.status_code == 200:
-            return resp.text.strip()
-            
-    except Exception as e:
-        print(f"AI Error: {e}")
-    
-    return "I didn't get that. Could you say it again?"
+        return requests.get(url, timeout=10).text.strip()
+    except: return None
 
-# ================== 2. MUSIC DOWNLOADER (SoundCloud) ==================
+# ================== 2. MUSIC (Render Compatible) ==================
 def download_music(query):
     try:
         clean_query = query.lower().replace("play ", "").strip()
-        print(f"🎵 Searching SoundCloud: {clean_query}")
+        print(f"🎵 Searching: {clean_query}")
         
-        filename = f"song_{int(time.time())}.mp3"
+        # Instagram likes .m4a (AAC), no conversion needed
+        filename = f"song_{int(time.time())}.m4a"
         path = f"/tmp/{filename}"
         if os.path.exists(path): os.remove(path)
 
         ydl_opts = {
-            'format': 'bestaudio/best',
+            # Direct M4A download (No FFmpeg needed)
+            'format': 'bestaudio[ext=m4a]/best',
             'outtmpl': path,
-            'default_search': 'scsearch1', # SoundCloud Search
+            'default_search': 'scsearch1', # SoundCloud
             'quiet': True,
             'no_warnings': True,
             'geo_bypass': True,
             'nocheckcertificate': True,
-            'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}],
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([clean_query])
 
-        if os.path.exists(path): return path, None
+        if os.path.exists(path): 
+            # Check file size (Empty file = Fail)
+            if os.path.getsize(path) > 0:
+                return path, None
+            else:
+                return None, "Downloaded file is empty."
+                
         return None, "Song not found."
+    except Exception as e: return None, str(e)
 
-    except Exception as e:
-        return None, str(e)
+# ================== 3. TELEGRAM SEARCH ==================
+async def run_tg_search(number):
+    if not Config.SESSION_STRING: return "⚠️ Config Missing"
+    bots = [Config.PRIMARY_BOT, Config.BACKUP_BOT]
+    
+    try:
+        async with TGClient("worker", api_id=Config.TG_API_ID, api_hash=Config.TG_API_HASH, session_string=Config.SESSION_STRING, in_memory=True) as app:
+            for bot in bots:
+                try:
+                    sent = await app.send_message(bot, number)
+                    await asyncio.sleep(5)
+                    async for msg in app.get_chat_history(bot, limit=3):
+                        if msg.id > sent.id and "start" not in msg.text.lower():
+                            return f"🕵️ Info ({bot}):\n{msg.text}"
+                except: continue
+    except Exception as e: return f"❌ TG Error: {e}"
+    
+    return "❌ No Data Found."
+
+def search_number(n):
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        res = loop.run_until_complete(run_tg_search(n))
+        loop.close()
+        return res
+    except: return "❌ System Error"
 
 # ================== MAIN BOT ==================
 def run_bot():
-    print("🚀 Starting SMART BOT...")
+    print("🚀 Starting FINAL BOT...")
 
     cl = Client()
     try:
@@ -103,7 +118,6 @@ def run_bot():
             for t in threads:
                 if not t.messages: continue
                 msg = t.messages[0]
-                
                 if msg.id in processed or str(msg.user_id) == str(cl.user_id): continue
                 processed.add(msg.id)
 
@@ -113,27 +127,39 @@ def run_bot():
                 print(f"📩 Msg: {text}")
                 tid = t.pk
 
-                # --- A. MUSIC ---
-                if "play " in text.lower():
-                    cl.direct_answer(tid, "🔍 Searching SoundCloud...")
+                # --- A. NUMBER SEARCH ---
+                num_match = re.search(r'(\+?\d{10,})', text)
+                if num_match:
+                    phone = num_match.group(1)
+                    cl.direct_answer(tid, f"🕵️ Checking {phone}...")
+                    res = search_number(phone)
+                    cl.direct_answer(tid, res)
+
+                # --- B. MUSIC ---
+                elif "play " in text.lower():
+                    cl.direct_answer(tid, "🔍 Searching...")
                     path, err = download_music(text)
-                    
                     if path:
-                        cl.direct_answer(tid, "🚀 Uploading Voice Note...")
+                        cl.direct_answer(tid, "🚀 Uploading...")
                         try:
+                            # Try 1: Voice Note (Best experience)
                             cl.direct_send_voice(path, [t.users[0].pk])
-                            cl.direct_answer(tid, "✅ Sent.")
-                            os.remove(path)
-                        except:
-                            cl.direct_answer(tid, "❌ Upload Failed.")
+                            cl.direct_answer(tid, "✅ Sent Voice Note.")
+                        except Exception as e_voice:
+                            print(f"Voice Fail: {e_voice}. Trying File...")
+                            try:
+                                # Try 2: Normal Audio File (More reliable)
+                                cl.direct_send_file(path, [t.users[0].pk])
+                                cl.direct_answer(tid, "✅ Sent Audio File.")
+                            except Exception as e_file:
+                                cl.direct_answer(tid, f"❌ Upload Failed completely. Error: {e_file}")
+                        
+                        # Cleanup
+                        if os.path.exists(path): os.remove(path)
                     else:
-                        cl.direct_answer(tid, "❌ Song not found.")
+                        cl.direct_answer(tid, f"❌ Download Error: {err}")
 
-                # --- B. NUMBER SEARCH ---
-                elif re.search(r'(\+?\d{10,})', text):
-                     cl.direct_answer(tid, "🕵️ Number detected (Telegram disabled for stability).")
-
-                # --- C. SMART AI CHAT ---
+                # --- C. AI CHAT ---
                 else:
                     reply = ask_ai(text)
                     if reply: cl.direct_answer(tid, reply)
