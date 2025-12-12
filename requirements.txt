@@ -1,8 +1,7 @@
-instagrapi
-google-generativeai>=0.8.3
-requests
-python-dotenv
 flask
+instagrapi
+google-generativeai
+requests
+pymongo
 pyrogram
 tgcrypto
-pymongo
