@@ -7,20 +7,16 @@ import random
 
 def download_media(url, is_audio=False):
     """
-    Robust media downloader. Rotates through multiple Cobalt mirrors 
-    to find one that works.
+    Debug Version: Returns the error message string if it fails,
+    instead of just None.
     """
-    # FRESH LIST OF WORKING MIRRORS (2025)
     instances = [
-        "https://api.cobalt.tools/api/json",      # Official
-        "https://cobalt.xy24.eu/api/json",        # Mirror 1
-        "https://api.server.cobalt.tools/api/json", # Mirror 2
-        "https://cobalt.arms.nu/api/json",        # Mirror 3
-        "https://cobalt.royale.us.kg/api/json"    # Mirror 4
+        "https://api.cobalt.tools/api/json",      
+        "https://cobalt.xy24.eu/api/json",       
+        "https://cobalt.arms.nu/api/json"
     ]
-    random.shuffle(instances) # Shuffle to avoid rate limits
+    random.shuffle(instances) 
 
-    # FAKE BROWSER HEADERS (Crucial to bypass blocks)
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
@@ -35,45 +31,44 @@ def download_media(url, is_audio=False):
         "filenamePattern": "classic",
         "disableMetadata": True
     }
+    if is_audio: payload.update({"isAudioOnly": "true", "aFormat": "mp3"})
 
-    if is_audio: 
-        payload.update({"isAudioOnly": "true", "aFormat": "mp3"})
+    last_error = ""
 
-    # --- 1. Try Cobalt Mirrors ---
+    # 1. Try Cobalt
     for base_url in instances:
         try:
-            print(f"🔄 Trying download via: {base_url}...")
+            # print(f"Trying: {base_url}")
             resp = requests.post(base_url, json=payload, headers=headers, timeout=10)
             
-            if resp.status_code == 429: # Rate limited
+            if resp.status_code != 200:
+                last_error = f"{base_url} returned {resp.status_code}"
                 continue
                 
             data = resp.json()
-            
-            # Check for success keys
             if "url" in data: return data["url"]
             if "picker" in data: return data["picker"][0]["url"]
             if "audio" in data: return data["audio"]
             
         except Exception as e:
-            print(f"⚠️ Mirror failed: {e}")
+            last_error = f"{base_url} Error: {str(e)}"
             continue
 
-    # --- 2. Emergency Fallback (DLPanda) ---
-    print("⚠️ All Cobalt mirrors failed. Trying Emergency Backup...")
+    # 2. Try Fallback
     try:
         if not is_audio: 
             api_url = f"https://www.dlpanda.com/api/downloader/video?url={url}"
             resp = requests.get(api_url, timeout=15).json()
             if resp and 'url' in resp:
                  return resp['url']
-    except: pass
+    except Exception as e:
+        last_error += f" | Backup Error: {e}"
 
-    return None
+    # Return the logs so we can show them in chat
+    return f"All Servers Failed.\nLast Error: {last_error}"
 
 async def run_lookup(number):
-    """Async Pyrogram lookup."""
-    if not Config.SESSION_STRING: return "⚠️ Telegram Config Missing"
+    if not Config.SESSION_STRING: return "⚠️ Config Error: SESSION_STRING missing"
     bots = [Config.PRIMARY_BOT, Config.BACKUP_BOT]
 
     try:
@@ -84,12 +79,13 @@ async def run_lookup(number):
                     await asyncio.sleep(5) 
                     async for msg in app.get_chat_history(bot, limit=3):
                         if msg.id > sent.id:
-                            return f"🕵️ **Info:**\n{msg.text}"
-                except: continue
+                            return f"🕵️ Info ({bot}):\n{msg.text}"
+                except Exception as e:
+                    return f"⚠️ Bot {bot} Error: {e}"
     except Exception as e:
-        return f"❌ TG Error: {e}"
+        return f"❌ Pyrogram Error: {e}"
 
-    return "❌ No Data Found."
+    return "❌ No Response from Telegram Bots"
 
 def truecaller_lookup(n):
     try:
