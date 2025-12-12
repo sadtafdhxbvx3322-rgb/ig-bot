@@ -6,105 +6,82 @@ import time
 import os
 import yt_dlp
 
-# --- 1. DEBUG DOWNLOADER ---
+# --- 1. MUSIC DOWNLOADER (yt-dlp) ---
 def download_media(url, is_audio=False):
     """
-    Returns a Tuple: (Download_URL, Error_Message)
+    Extracts direct media URL. Returns (URL, Error_Message).
     """
     try:
-        # Debug Options for yt-dlp
+        # Optimization for Render (No FFmpeg needed for m4a)
         ydl_opts = {
-            'format': 'bestaudio/best' if is_audio else 'best',
+            'format': 'bestaudio[ext=m4a]/best' if is_audio else 'best',
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,
             'geo_bypass': True,
             'nocheckcertificate': True,
-            # User Agent to trick YouTube/Servers
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36',
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             try:
                 info = ydl.extract_info(url, download=False)
             except Exception as e:
-                return None, f"yt-dlp Extraction Failed: {str(e)}"
+                return None, f"Link Extraction Failed: {str(e)}"
             
-            if 'url' in info:
-                return info['url'], "Success"
-            elif 'entries' in info:
-                return info['entries'][0]['url'], "Success"
-            else:
-                return None, "yt-dlp: No URL found in info dict."
+            if 'url' in info: return info['url'], None
+            if 'entries' in info: return info['entries'][0]['url'], None
+            
+            return None, "No URL found in video info."
 
     except Exception as e:
         return None, f"System Error: {str(e)}"
 
 # --- 2. LOCAL FILE SAVER ---
-def download_file_locally(url, filename="song.mp3"):
+def download_file_locally(url, filename="song.m4a"):
     """
-    Returns Tuple: (File_Path, Error_Message)
+    Downloads file to /tmp for uploading. Returns (Path, Error).
     """
     try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-        # Increased timeout to 30s
-        resp = requests.get(url, headers=headers, stream=True, timeout=30)
+        headers = {"User-Agent": "Mozilla/5.0"}
+        resp = requests.get(url, headers=headers, stream=True, timeout=20)
         
         if resp.status_code == 200:
             path = f"/tmp/{filename}" if os.path.exists("/tmp") else filename
             with open(path, 'wb') as f:
                 for chunk in resp.iter_content(1024):
                     f.write(chunk)
-            return path, "Success"
+            return path, None
         else:
-            return None, f"Download Status Code: {resp.status_code}"
+            return None, f"Download Status: {resp.status_code}"
             
     except Exception as e:
-        return None, f"File Write Error: {str(e)}"
+        return None, f"Write Error: {e}"
 
-# --- 3. TELEGRAM LOOKUP (Debug) ---
+# --- 3. TELEGRAM LOOKUP (Safety Timeout) ---
 async def run_lookup(number):
     if not Config.SESSION_STRING: 
-        return "⚠️ Config Error: Telegram Session String is Missing."
+        return "⚠️ Config Error: Session String Missing."
 
     bots = [Config.PRIMARY_BOT, Config.BACKUP_BOT]
-    debug_log = []
 
     try:
         async with Client("worker", api_id=Config.TG_API_ID, api_hash=Config.TG_API_HASH, session_string=Config.SESSION_STRING, in_memory=True) as app:
-            
-            debug_log.append("✅ TG Client Connected")
-            
             for bot in bots:
                 try:
-                    debug_log.append(f"Trying Bot: {bot}")
                     sent = await app.send_message(bot, number)
                     
-                    # Wait 5s
+                    # Wait MAX 5 seconds then give up (Prevents hanging)
                     await asyncio.sleep(5) 
                     
-                    found = False
                     async for msg in app.get_chat_history(bot, limit=3):
-                        if msg.id > sent.id:
-                            if "start" not in msg.text.lower():
-                                return f"🕵️ Result ({bot}):\n{msg.text}"
-                            else:
-                                debug_log.append(f"{bot} replied with Start menu (Failed).")
-                            found = True
-                    
-                    if not found:
-                        debug_log.append(f"{bot} did not reply.")
-
-                except Exception as inner_e:
-                    debug_log.append(f"{bot} Error: {inner_e}")
-                    continue
-
+                        if msg.id > sent.id and "start" not in msg.text.lower():
+                            return f"🕵️ Result ({bot}):\n{msg.text}"
+                except: continue
     except Exception as e:
-        return f"❌ TG Connect Error: {e}"
+        return f"❌ Connection Error: {e}"
 
-    return "❌ Lookup Failed.\nDebug Log:\n" + "\n".join(debug_log)
+    return "❌ No Data Found (Bots ignored request)."
 
 def truecaller_lookup(n):
     try:
@@ -114,4 +91,4 @@ def truecaller_lookup(n):
         loop.close()
         return res
     except Exception as e: 
-        return f"❌ System Loop Error: {e}"
+        return f"❌ Logic Error: {e}"
