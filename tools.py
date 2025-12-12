@@ -4,18 +4,19 @@ from pyrogram import Client
 from config import Config
 import time
 import random
+import os
 
 def download_media(url, is_audio=False):
     """
-    Debug Version: Returns the error message string if it fails,
-    instead of just None.
+    Returns the DIRECT URL of the media using Cobalt.
     """
+    # 2025 Working Mirrors
     instances = [
-        "https://api.cobalt.tools/api/json",      
-        "https://cobalt.xy24.eu/api/json",       
-        "https://cobalt.arms.nu/api/json"
+        "https://api.cobalt.tools/api/json",       # Official (Best)
+        "https://cobalt.arms.nu/api/json",         # Backup 1
+        "https://api.server.cobalt.tools/api/json" # Backup 2
     ]
-    random.shuffle(instances) 
+    random.shuffle(instances)
 
     headers = {
         "Accept": "application/json",
@@ -31,44 +32,43 @@ def download_media(url, is_audio=False):
         "filenamePattern": "classic",
         "disableMetadata": True
     }
-    if is_audio: payload.update({"isAudioOnly": "true", "aFormat": "mp3"})
 
-    last_error = ""
+    if is_audio: 
+        payload.update({"isAudioOnly": "true", "aFormat": "mp3"})
 
-    # 1. Try Cobalt
     for base_url in instances:
         try:
-            # print(f"Trying: {base_url}")
-            resp = requests.post(base_url, json=payload, headers=headers, timeout=10)
+            resp = requests.post(base_url, json=payload, headers=headers, timeout=15)
+            if resp.status_code != 200: continue
             
-            if resp.status_code != 200:
-                last_error = f"{base_url} returned {resp.status_code}"
-                continue
-                
             data = resp.json()
+            # Try to find the direct link
             if "url" in data: return data["url"]
             if "picker" in data: return data["picker"][0]["url"]
             if "audio" in data: return data["audio"]
             
-        except Exception as e:
-            last_error = f"{base_url} Error: {str(e)}"
-            continue
+        except: continue
 
-    # 2. Try Fallback
+    return None
+
+def download_file_locally(url, filename="temp_audio.mp3"):
+    """
+    Downloads a file to the local system (required for Voice Note upload).
+    """
     try:
-        if not is_audio: 
-            api_url = f"https://www.dlpanda.com/api/downloader/video?url={url}"
-            resp = requests.get(api_url, timeout=15).json()
-            if resp and 'url' in resp:
-                 return resp['url']
+        resp = requests.get(url, stream=True)
+        if resp.status_code == 200:
+            path = f"/tmp/{filename}" if os.path.exists("/tmp") else filename
+            with open(path, 'wb') as f:
+                for chunk in resp.iter_content(1024):
+                    f.write(chunk)
+            return path
     except Exception as e:
-        last_error += f" | Backup Error: {e}"
-
-    # Return the logs so we can show them in chat
-    return f"All Servers Failed.\nLast Error: {last_error}"
+        print(f"⚠️ Download Local Failed: {e}")
+    return None
 
 async def run_lookup(number):
-    if not Config.SESSION_STRING: return "⚠️ Config Error: SESSION_STRING missing"
+    if not Config.SESSION_STRING: return "⚠️ Telegram Config Missing"
     bots = [Config.PRIMARY_BOT, Config.BACKUP_BOT]
 
     try:
@@ -76,16 +76,14 @@ async def run_lookup(number):
             for bot in bots:
                 try:
                     sent = await app.send_message(bot, number)
-                    await asyncio.sleep(5) 
+                    await asyncio.sleep(4) 
                     async for msg in app.get_chat_history(bot, limit=3):
                         if msg.id > sent.id:
                             return f"🕵️ Info ({bot}):\n{msg.text}"
-                except Exception as e:
-                    return f"⚠️ Bot {bot} Error: {e}"
+                except: continue
     except Exception as e:
-        return f"❌ Pyrogram Error: {e}"
-
-    return "❌ No Response from Telegram Bots"
+        return f"❌ TG Error: {e}"
+    return "❌ No Response."
 
 def truecaller_lookup(n):
     try:
@@ -94,5 +92,4 @@ def truecaller_lookup(n):
         res = loop.run_until_complete(run_lookup(n))
         loop.close()
         return res
-    except Exception as e: 
-        return f"❌ System Error: {e}"
+    except: return "❌ System Error"
