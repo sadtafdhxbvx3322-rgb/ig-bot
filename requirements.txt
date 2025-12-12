@@ -2,6 +2,7 @@ flask
 instagrapi
 google-generativeai
 requests
+python-dotenv
 pymongo
 pyrogram
 tgcrypto
