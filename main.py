@@ -3,6 +3,7 @@ import time
 import json
 import logging
 import requests
+import re
 import yt_dlp
 from flask import Flask
 from instagrapi import Client
@@ -16,78 +17,79 @@ for lib in ['urllib3', 'instagrapi', 'httpx', 'httpcore', 'yt_dlp']:
 app = Flask(__name__)
 
 @app.route('/')
-def home(): return "Bot Online (Unlimited Mode)"
+def home(): return "Bot Online (Smart AI Mode)"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
 
-# ================== 1. UNLIMITED AI (Pollinations) ==================
-def ask_pollinations(text):
+# ================== 1. SMART AI (No Cringe Slang) ==================
+def ask_ai(text):
     """
-    Uses Pollinations.ai (Free/No Key) to generate replies.
-    Never gives 429/404 errors.
+    Uses Pollinations AI but with a strictly 'Helpful & Adaptive' persona.
     """
     try:
-        # Construct prompt for Hinglish slang
-        prompt = f"Reply to this user message in cool Indian Hinglish slang (Bro/Yaar style). Keep it short. Message: {text}"
-        # URL encode is handled by requests usually, but direct string works for simple cases
+        # --- NEW PROMPT STRATEGY ---
+        # Ye prompt bot ko force karega ki wo tumhari language match kare.
+        system_instruction = (
+            "You are a helpful and smart Instagram assistant. "
+            "IMPORTANT: Reply in the SAME LANGUAGE as the user. "
+            "If the user speaks English, reply in normal English. "
+            "If the user speaks Hindi/Hinglish, reply in Hinglish. "
+            "Do NOT use excessive slang like 'chill maar' or 'kya scene hai' unless the user does. "
+            "Keep replies short, logical, and directly answer the question."
+        )
+        
+        prompt = f"{system_instruction}\n\nUser Message: {text}"
         url = f"https://text.pollinations.ai/{prompt}"
         
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            return response.text.strip()
+        resp = requests.get(url, timeout=10)
+        if resp.status_code == 200:
+            return resp.text.strip()
+            
     except Exception as e:
-        print(f"AI Fail: {e}")
-    return "Arre bro, network issue hai. Thodi der mein bolta hoon!"
+        print(f"AI Error: {e}")
+    
+    return "I didn't get that. Could you say it again?"
 
-# ================== 2. SEARCH & DOWNLOAD ENGINE ==================
-def download_song(query):
-    """
-    Searches YouTube for 'query' and downloads audio.
-    Returns: (FilePath, ErrorMessage)
-    """
+# ================== 2. MUSIC DOWNLOADER (SoundCloud) ==================
+def download_music(query):
     try:
-        # Clean the query (remove "play")
-        search_term = query.lower().replace("play ", "").strip()
-        print(f"🔍 Searching YouTube for: {search_term}")
+        clean_query = query.lower().replace("play ", "").strip()
+        print(f"🎵 Searching SoundCloud: {clean_query}")
         
-        filename = f"song_{int(time.time())}.m4a"
+        filename = f"song_{int(time.time())}.mp3"
         path = f"/tmp/{filename}"
         if os.path.exists(path): os.remove(path)
 
-        # 'ytsearch1:' tells yt-dlp to SEARCH and pick the first result
         ydl_opts = {
-            'format': 'bestaudio[ext=m4a]/best',
+            'format': 'bestaudio/best',
             'outtmpl': path,
-            'default_search': 'ytsearch1',  # <--- CRITICAL FIX
+            'default_search': 'scsearch1', # SoundCloud Search
             'quiet': True,
             'no_warnings': True,
             'geo_bypass': True,
             'nocheckcertificate': True,
+            'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'mp3'}],
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([search_term])
+            ydl.download([clean_query])
 
-        if os.path.exists(path):
-            return path, None
-        else:
-            return None, "Download finished but file missing."
+        if os.path.exists(path): return path, None
+        return None, "Song not found."
 
     except Exception as e:
         return None, str(e)
 
-# ================== MAIN LOGIC ==================
+# ================== MAIN BOT ==================
 def run_bot():
-    print("🚀 Starting UNLIMITED Bot...")
+    print("🚀 Starting SMART BOT...")
 
-    # 1. LOGIN
     cl = Client()
     try:
         cl.set_settings(json.loads(Config.INSTA_SESSION))
         cl.login(Config.INSTA_USER, Config.INSTA_PASS)
-        my_id = str(cl.user_id)
-        print(f"✅ Login Success: {my_id}")
+        print(f"✅ Login Success: {cl.user_id}")
     except Exception as e:
         print(f"❌ Login Failed: {e}")
         return
@@ -98,49 +100,43 @@ def run_bot():
     while True:
         try:
             threads = cl.direct_threads(amount=5)
-
             for t in threads:
                 if not t.messages: continue
                 msg = t.messages[0]
                 
-                if msg.id in processed: continue
-                if str(msg.user_id) == my_id: continue
-
+                if msg.id in processed or str(msg.user_id) == str(cl.user_id): continue
                 processed.add(msg.id)
+
                 text = getattr(msg, 'text', "").strip()
                 if not text: continue
                 
-                print(f"📩 New Task: {text}")
+                print(f"📩 Msg: {text}")
                 tid = t.pk
 
-                # --- FEATURE 1: MUSIC (Play ...) ---
-                if "play " in text.lower() or "spotify" in text.lower():
-                    try:
-                        cl.direct_answer(tid, f"🔍 Searching '{text}'...")
-                        
-                        # Download using Search Mode
-                        path, err = download_song(text)
-                        
-                        if path:
-                            cl.direct_answer(tid, "🚀 Uploading Voice Note...")
+                # --- A. MUSIC ---
+                if "play " in text.lower():
+                    cl.direct_answer(tid, "🔍 Searching SoundCloud...")
+                    path, err = download_music(text)
+                    
+                    if path:
+                        cl.direct_answer(tid, "🚀 Uploading Voice Note...")
+                        try:
                             cl.direct_send_voice(path, [t.users[0].pk])
                             cl.direct_answer(tid, "✅ Sent.")
                             os.remove(path)
-                        else:
-                            cl.direct_answer(tid, f"❌ Error: {err}")
-                            
-                    except Exception as e:
-                        cl.direct_answer(tid, f"⚠️ Music Crash: {e}")
+                        except:
+                            cl.direct_answer(tid, "❌ Upload Failed.")
+                    else:
+                        cl.direct_answer(tid, "❌ Song not found.")
 
-                # --- FEATURE 2: AI CHAT (Normal Msgs) ---
+                # --- B. NUMBER SEARCH ---
+                elif re.search(r'(\+?\d{10,})', text):
+                     cl.direct_answer(tid, "🕵️ Number detected (Telegram disabled for stability).")
+
+                # --- C. SMART AI CHAT ---
                 else:
-                    try:
-                        # Use Pollinations (No Keys, No Limits)
-                        reply = ask_pollinations(text)
-                        if reply:
-                            cl.direct_answer(tid, reply)
-                    except Exception as e:
-                        print(f"Chat Error: {e}")
+                    reply = ask_ai(text)
+                    if reply: cl.direct_answer(tid, reply)
 
         except Exception as e:
             print(f"🔥 Loop Error: {e}")
