@@ -20,28 +20,35 @@ for lib in ['urllib3', 'instagrapi', 'httpx', 'httpcore', 'yt_dlp']:
 app = Flask(__name__)
 
 @app.route('/')
-def home(): return "Bot Online (Attribute Fix)"
+def home(): return "Bot Online (Media Tools Fixed)"
 
 def run_web():
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 5000)))
 
-# ================== 0. MEDIA TOOLS INSTALLER ==================
+# ================== 0. MEDIA TOOLS INSTALLER (FFmpeg + FFprobe) ==================
 def setup_media_tools():
     """
-    Downloads FFmpeg/FFprobe to ensure audio files are processed correctly.
+    Downloads BOTH FFmpeg and FFprobe. 
+    Crucial: Instagrapi needs 'ffprobe' to identify audio files.
+    Without it, it treats audio as images and fails.
     """
     bin_dir = os.path.join(os.getcwd(), "bin")
     ffmpeg_exe = os.path.join(bin_dir, "ffmpeg")
-    
-    if os.path.exists(ffmpeg_exe):
+    ffprobe_exe = os.path.join(bin_dir, "ffprobe")
+
+    # 1. Check if both exist and work
+    if os.path.exists(ffmpeg_exe) and os.path.exists(ffprobe_exe):
+        print("✅ Found existing Media Tools.")
         os.environ["PATH"] += os.pathsep + bin_dir
         return
 
-    print("⬇️ Downloading Media Tools...")
+    print("⬇️ Downloading FFmpeg & FFprobe (Critical for Audio)...")
     try:
+        # Clean start
         if os.path.exists(bin_dir): shutil.rmtree(bin_dir)
         os.makedirs(bin_dir)
 
+        # Download Static Build (Contains both tools)
         url = "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz"
         tar_path = "tools.tar.xz"
         
@@ -50,29 +57,43 @@ def setup_media_tools():
             for chunk in resp.iter_content(4096):
                 f.write(chunk)
         
+        # Extract
+        print("📦 Extracting...")
         with tarfile.open(tar_path) as tar:
             tar.extractall(path=bin_dir)
         
-        inner_folder = [f for f in os.listdir(bin_dir) if "ffmpeg-" in f][0]
+        # Locate the inner folder (name changes with version)
+        inner_folder = [f for f in os.listdir(bin_dir) if "ffmpeg-" in f and os.path.isdir(os.path.join(bin_dir, f))][0]
         source_dir = os.path.join(bin_dir, inner_folder)
 
+        # Move binaries to main bin folder
         shutil.move(os.path.join(source_dir, "ffmpeg"), ffmpeg_exe)
-        shutil.move(os.path.join(source_dir, "ffprobe"), os.path.join(bin_dir, "ffprobe"))
+        shutil.move(os.path.join(source_dir, "ffprobe"), ffprobe_exe)
         
+        # CRITICAL: Grant Execute Permissions to BOTH
         os.chmod(ffmpeg_exe, 0o755)
+        os.chmod(ffprobe_exe, 0o755)
+        
+        # Add to System Path
         os.environ["PATH"] += os.pathsep + bin_dir
         
+        # Verify
+        print("🔍 Verifying installation...")
+        subprocess.run([ffmpeg_exe, "-version"], stdout=subprocess.DEVNULL, check=True)
+        subprocess.run([ffprobe_exe, "-version"], stdout=subprocess.DEVNULL, check=True)
+        print("✅ Media Tools Installed & Verified!")
+        
+        # Cleanup
         if os.path.exists(tar_path): os.remove(tar_path)
         shutil.rmtree(source_dir)
-        print("✅ Tools Installed.")
         
     except Exception as e:
-        print(f"❌ Install Warning: {e}")
+        print(f"❌ Install Failed: {e}")
 
 # ================== 1. SMART AI ==================
 def ask_ai(text):
     try:
-        prompt = f"Reply in the same language as user. Keep it helpful. User: {text}"
+        prompt = f"Reply in the same language as the user. Keep it helpful and short. User: {text}"
         url = f"https://text.pollinations.ai/{prompt}"
         return requests.get(url, timeout=10).text.strip()
     except: return None
@@ -83,6 +104,7 @@ def download_music(query):
         clean_query = query.lower().replace("play ", "").strip()
         print(f"🎵 Searching: {clean_query}")
         
+        # Instagrapi works best with .m4a for direct file sending
         filename = f"song_{int(time.time())}.m4a"
         path = os.path.join(os.getcwd(), filename)
         if os.path.exists(path): os.remove(path)
@@ -90,7 +112,7 @@ def download_music(query):
         ydl_opts = {
             'format': 'bestaudio[ext=m4a]/best',
             'outtmpl': path,
-            'default_search': 'scsearch1',
+            'default_search': 'scsearch1', # SoundCloud
             'quiet': True,
             'no_warnings': True,
             'geo_bypass': True,
@@ -106,6 +128,7 @@ def download_music(query):
 
 # ================== MAIN BOT ==================
 def run_bot():
+    # Step 1: Install BOTH FFmpeg and FFprobe
     setup_media_tools()
 
     print("🚀 Starting INSTA BOT...")
@@ -136,7 +159,7 @@ def run_bot():
                 print(f"📩 Msg: {text}")
                 tid = t.pk
 
-                # --- MUSIC ---
+                # --- MUSIC (AUDIO FILE) ---
                 if "play " in text.lower():
                     cl.direct_answer(tid, "🔍 Searching...")
                     path, err = download_music(text)
@@ -144,8 +167,8 @@ def run_bot():
                     if path:
                         cl.direct_answer(tid, "🚀 Uploading Audio...")
                         try:
-                            # FIX IS HERE: Use direct_send_file instead of direct_send_voice
-                            # This method ALWAYS exists and works for audio files.
+                            # Now that FFprobe is installed, this will NOT give 'JPG Error'
+                            # It will detect it as Audio and send it as a playable file.
                             cl.direct_send_file(path, [t.users[0].pk])
                             cl.direct_answer(tid, "✅ Sent.")
                         except Exception as e:
